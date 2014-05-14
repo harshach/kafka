@@ -104,7 +104,7 @@ object ConsoleConsumer extends Logging {
             .withRequiredArg
             .describedAs("prop")
             .ofType(classOf[String])
-    val deleteConsumerPathOpt = parser.accepts("delete-consumer-path", "deletes zookeeper consumers dir");
+    val deleteConsumerOffsetsOpt = parser.accepts("delete-consumer-offsets", "If specified, the consumer path in zookeeper is deleted when starting up");
     val resetBeginningOpt = parser.accepts("from-beginning", "If the consumer does not already have an established offset to consume from, " +
             "start with the earliest message present in the log rather than the latest message.")
     val autoCommitIntervalOpt = parser.accepts("autocommit.interval.ms", "The time interval at which to save the current offset in ms")
@@ -160,6 +160,17 @@ object ConsoleConsumer extends Logging {
       KafkaMetricsReporter.startReporters(verifiableProps)
     }
 
+    if (!options.has(deleteConsumerOffsetsOpt) && options.has(resetBeginningOpt) &&
+       checkZkPathExists(options.valueOf(zkConnectOpt),"/consumers/" + options.valueOf(groupIdOpt)
+        + "/offsets/"+options.valueOf(topicIdOpt))) {
+      error("Found previous offset information for this group "+options.valueOf(groupIdOpt)
+        +" with topic "+options.valueOf(topicIdOpt)+". Please use --delete-consumer-offsets to delete previous offsets metadata")
+      System.exit(1)
+    }
+
+    if(options.has(deleteConsumerOffsetsOpt))
+      ZkUtils.maybeDeletePath(options.valueOf(zkConnectOpt), "/consumers/" + options.valueOf(groupIdOpt))
+
     val offsetsStorage = options.valueOf(offsetsStorageOpt)
     val props = new Properties()
     props.put("group.id", options.valueOf(groupIdOpt))
@@ -192,8 +203,6 @@ object ConsoleConsumer extends Logging {
 
     val connector = Consumer.create(config)
 
-    if(options.has(deleteConsumerPathOpt))
-      ZkUtils.maybeDeletePath(options.valueOf(zkConnectOpt), "/consumers/" + options.valueOf(groupIdOpt))
 
     Runtime.getRuntime.addShutdownHook(new Thread() {
       override def run() {
@@ -254,19 +263,15 @@ object ConsoleConsumer extends Logging {
     }
   }
 
-  def tryCleanupZookeeper(zkUrl: String, groupId: String) {
+  def checkZkPathExists(zkUrl: String, path: String): Boolean = {
     try {
-      val dir = "/consumers/" + groupId
-      info("Cleaning up temporary zookeeper data under " + dir + ".")
-      val zk = new ZkClient(zkUrl, 30*1000, 30*1000, ZKStringSerializer)
-      zk.deleteRecursive(dir)
-      zk.close()
+      val zk = new ZkClient(zkUrl, 30*1000,30*1000, ZKStringSerializer);
+      zk.exists(path)
     } catch {
-      case _: Throwable => // swallow
+      case _: Throwable => false
     }
   }
 }
-
 
 object MessageFormatter {
   def tryParseFormatterArgs(args: Iterable[String]): Properties = {
