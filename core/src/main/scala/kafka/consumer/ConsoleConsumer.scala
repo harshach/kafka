@@ -161,10 +161,9 @@ object ConsoleConsumer extends Logging {
     }
 
     if (!options.has(deleteConsumerOffsetsOpt) && options.has(resetBeginningOpt) &&
-       checkZkPathExists(options.valueOf(zkConnectOpt),"/consumers/" + options.valueOf(groupIdOpt)
-        + "/offsets/"+options.valueOf(topicIdOpt))) {
+       checkZkPathExists(options.valueOf(zkConnectOpt),"/consumers/" + options.valueOf(groupIdOpt)+ "/offsets")) {
       error("Found previous offset information for this group "+options.valueOf(groupIdOpt)
-        +" with topic "+options.valueOf(topicIdOpt)+". Please use --delete-consumer-offsets to delete previous offsets metadata")
+        +". Please use --delete-consumer-offsets to delete previous offsets metadata")
       System.exit(1)
     }
 
