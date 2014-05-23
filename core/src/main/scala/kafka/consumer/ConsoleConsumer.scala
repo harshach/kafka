@@ -207,26 +207,6 @@ object ConsoleConsumer extends Logging {
     }
   }
 
-  def parseProperties(properties: String): Properties = {
-    val ret = new Properties()
-    if (properties != null) {
-      try {
-        val propsList = properties.split(",").map(_.trim)
-        for (prop <- propsList) {
-          val splits = prop.split("=").map(_.trim)
-          if(splits.size != 2) {
-            System.err.println("Invalid parser arguments: " + prop)
-            System.exit(1)
-          }
-          ret.put(splits(0),splits(1))
-        }
-      } catch {
-        case e: Throwable => error("Error processing properties , please provide key1=value1,key2=value2 .. format ", e)
-      }
-    }
-    ret
-  }
-
   def checkZkPathExists(zkUrl: String, path: String): Boolean = {
     try {
       val zk = new ZkClient(zkUrl, 30*1000,30*1000, ZKStringSerializer);
