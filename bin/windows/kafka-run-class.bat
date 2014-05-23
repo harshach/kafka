@@ -36,11 +36,6 @@ for %%i in (%BASE_DIR%\core\build\dependant-libs-%SCALA_VERSION%\*.jar) do (
 	call :concat %%i
 )
 
-rem Classpath addition for kafka-perf dependencies
-for %%i in (%BASE_DIR%\perf\build\dependant-libs-%SCALA_VERSION%\*.jar) do (
-	call :concat %%i
-)
-
 rem Classpath addition for kafka-clients
 for %%i in (%BASE_DIR%\clients\build\libs\kafka-clients-*.jar) do (
 	call :concat %%i
