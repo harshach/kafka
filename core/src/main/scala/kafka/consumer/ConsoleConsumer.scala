@@ -54,10 +54,10 @@ object ConsoleConsumer extends Logging {
             .withRequiredArg
             .describedAs("urls")
             .ofType(classOf[String])
-    val consumerPropertiesOpt = parser.accepts("consumer-properties", "The kafka consumer properties. Mutiple properties can be given in the following format."
-      +" Ex: --consumer-properties=group.id=testgroup,socket.timeout.ms=30000,fetch.min.bytes=1 ")
+
+    val consumerConfigOpt = parser.accepts("consumer-config", "Consumer config properties file.")
             .withRequiredArg
-            .describedAs("properties")
+            .describedAs("config file")
             .ofType(classOf[String])
     val messageFormatterOpt = parser.accepts("formatter", "The name of a class to use for formatting kafka messages for display.")
             .withRequiredArg
@@ -115,7 +115,11 @@ object ConsoleConsumer extends Logging {
 
 
 
-    val consumerProps = parseProperties(options.valueOf(consumerPropertiesOpt))
+    val consumerProps = if (options.has(consumerConfigOpt))
+      Utils.loadProps(options.valueOf(consumerConfigOpt))
+    else
+      new Properties()
+
     if(!consumerProps.containsKey("group.id")) {
       consumerProps.put("group.id","console-consumer-" + new Random().nextInt(100000))
       !groupIdPassed
