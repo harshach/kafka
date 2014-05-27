@@ -32,7 +32,7 @@ import kafka.common.TopicAndPartition
 object SimpleConsumerPerformance {
 
   def main(args: Array[String]) {
-    val logger = Logger.getLogger("kafka.tools.performance")
+    val logger = Logger.getLogger(getClass())
     val config = new ConsumerPerfConfig(args)
 
     if(!config.hideHeader) {

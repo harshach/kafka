@@ -31,7 +31,7 @@ import java.text.SimpleDateFormat
  * Performance test for the full zookeeper consumer
  */
 object ConsumerPerformance {
-  private val logger = Logger.getLogger("kafka.tools.performance")
+  private val logger = Logger.getLogger(getClass())
 
   def main(args: Array[String]): Unit = {
 

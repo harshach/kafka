@@ -39,7 +39,7 @@ object ProducerPerformance extends Logging {
 
   def main(args: Array[String]) {
 
-    val logger = Logger.getLogger("kafka.tools.peformance")
+    val logger = Logger.getLogger(getClass())
     val config = new ProducerPerfConfig(args)
     if (!config.isFixedSize)
       logger.info("WARN: Throughput will be slower due to changing message size per request")
