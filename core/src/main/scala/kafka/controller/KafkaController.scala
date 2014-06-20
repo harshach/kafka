@@ -169,7 +169,6 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
   private val preferredReplicaPartitionLeaderSelector = new PreferredReplicaPartitionLeaderSelector(controllerContext)
   private val controlledShutdownPartitionLeaderSelector = new ControlledShutdownLeaderSelector(controllerContext)
   private val brokerRequestBatch = new ControllerBrokerRequestBatch(this)
-  readControllerEpochFromZookeeper()
   newGauge(
     "ActiveControllerCount",
     new Gauge[Int] {
@@ -297,6 +296,8 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
   def onControllerFailover() {
     if(isRunning) {
       info("Broker %d starting become controller state transition".format(config.brokerId))
+      //read controller epoch from zk
+      readControllerEpochFromZookeeper()
       // increment the controller epoch
       incrementControllerEpoch(zkClient)
       // before reading source of truth from zookeeper, register the listeners to get broker/topic callbacks
@@ -345,6 +346,8 @@ class KafkaController(val config : KafkaConfig, zkClient: ZkClient, val brokerSt
         controllerContext.controllerChannelManager.shutdown()
         controllerContext.controllerChannelManager = null
       }
+      controllerContext.epoch=0
+      controllerContext.epochZkVersion=0
       brokerState.newState(RunningAsBroker)
     }
   }
