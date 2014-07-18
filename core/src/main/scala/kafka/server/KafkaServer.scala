@@ -25,11 +25,16 @@ import kafka.utils._
 import java.util.concurrent._
 import atomic.{AtomicInteger, AtomicBoolean}
 import java.io.File
+import java.io.FileOutputStream
+import java.io.FileNotFoundException
+import java.util.Properties
+import collection.mutable
 import org.I0Itec.zkclient.ZkClient
 import kafka.controller.{ControllerStats, KafkaController}
 import kafka.cluster.Broker
 import kafka.api.{ControlledShutdownResponse, ControlledShutdownRequest}
 import kafka.common.ErrorMapping
+import kafka.common.InconsistentBrokerIdException
 import kafka.network.{Receive, BlockingChannel, SocketServer}
 import kafka.metrics.KafkaMetricsGroup
 import com.yammer.metrics.core.Gauge
@@ -39,10 +44,12 @@ import com.yammer.metrics.core.Gauge
  * to start up and shutdown a single Kafka node.
  */
 class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logging with KafkaMetricsGroup {
-  this.logIdent = "[Kafka Server " + config.brokerId + "], "
+
   private var isShuttingDown = new AtomicBoolean(false)
   private var shutdownLatch = new CountDownLatch(1)
   private var startupComplete = new AtomicBoolean(false)
+  private var brokerId: Int = -1
+  private var metaPropsFile = "meta.properties"
   val brokerState: BrokerState = new BrokerState
   val correlationId: AtomicInteger = new AtomicInteger(0)
   var socketServer: SocketServer = null
@@ -76,13 +83,17 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
 
     /* start scheduler */
     kafkaScheduler.startup()
-    
+
     /* setup zookeeper */
     zkClient = initZk()
 
     /* start log manager */
     logManager = createLogManager(zkClient, brokerState)
     logManager.startup()
+
+    /* generate brokerId */
+    config.brokerId =  getBrokerId(zkClient, config.brokerId, config.logDirs)
+    this.logIdent = "[Kafka Server " + config.brokerId + "], "
 
     socketServer = new SocketServer(config.brokerId,
                                     config.hostName,
@@ -101,31 +112,31 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
     offsetManager = createOffsetManager()
 
     kafkaController = new KafkaController(config, zkClient, brokerState)
-    
+
     /* start processing requests */
     apis = new KafkaApis(socketServer.requestChannel, replicaManager, offsetManager, zkClient, config.brokerId, config, kafkaController)
     requestHandlerPool = new KafkaRequestHandlerPool(config.brokerId, socketServer.requestChannel, apis, config.numIoThreads)
     brokerState.newState(RunningAsBroker)
-   
+
     Mx4jLoader.maybeLoad()
 
     replicaManager.startup()
 
     kafkaController.startup()
-    
+
     topicConfigManager = new TopicConfigManager(zkClient, logManager)
     topicConfigManager.startup()
-    
+
     /* tell everyone we are alive */
     kafkaHealthcheck = new KafkaHealthcheck(config.brokerId, config.advertisedHostName, config.advertisedPort, config.zkSessionTimeoutMs, zkClient)
     kafkaHealthcheck.startup()
 
-    
+
     registerStats()
     startupComplete.set(true)
     info("started")
   }
-  
+
   private def initZk(): ZkClient = {
     info("Connecting to zookeeper on " + config.zkConnect)
     val zkClient = new ZkClient(config.zkConnect, config.zkSessionTimeoutMs, config.zkConnectionTimeoutMs, ZKStringSerializer)
@@ -273,9 +284,9 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
   def awaitShutdown(): Unit = shutdownLatch.await()
 
   def getLogManager(): LogManager = logManager
-  
+
   private def createLogManager(zkClient: ZkClient, brokerState: BrokerState): LogManager = {
-    val defaultLogConfig = LogConfig(segmentSize = config.logSegmentBytes, 
+    val defaultLogConfig = LogConfig(segmentSize = config.logSegmentBytes,
                                      segmentMs = config.logRollTimeMillis,
                                      flushInterval = config.logFlushIntervalMessages,
                                      flushMs = config.logFlushIntervalMs.toLong,
@@ -323,5 +334,55 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
     new OffsetManager(offsetManagerConfig, replicaManager, zkClient, kafkaScheduler)
   }
 
-}
+  /**
+    * if the config has brokerId return brokeId, otherwise generates a sequence id from ZK uses it has brokerId.
+    * Stores the generated zk sequence id in meta.properties file under all logDirs in config.
+  */
+  private def getBrokerId(zkClient: ZkClient, configBrokerId: Int, logDirs: Seq[String]): Int =  {
+    var brokerId = configBrokerId
+    var logDirsWithoutMetaProps: List[String] = List()
+    val metaBrokerIdSet = mutable.HashSet[Int]()
+    if (brokerId < 0) {
+      for (logDir <- logDirs) {
+        val (succeeded, metaBrokerId) = readBrokerIdFromMetaProps(logDir)
+        if(!succeeded) {
+          logDirsWithoutMetaProps ++= List(logDir)
+        } else {
+          metaBrokerIdSet.add(metaBrokerId)
+        }
+      }
 
+      if(metaBrokerIdSet.size > 1) {
+        throw new InconsistentBrokerIdException("unable to match brokerId across logDirs")
+      } else if(metaBrokerIdSet.size == 0) {
+        brokerId = ZkUtils.getBrokerSequenceId(zkClient)
+      } else {
+        brokerId = metaBrokerIdSet.last
+      }
+      storeBrokerId(brokerId, logDirsWithoutMetaProps)
+    }
+    return brokerId
+  }
+
+  private def readBrokerIdFromMetaProps(logDir: String): (Boolean, Int) = {
+    try {
+      val metaProps = new VerifiableProperties(Utils.loadProps(logDir+"/meta.properties"))
+      if (metaProps.containsKey("broker.id"))
+        return (true, metaProps.getIntInRange("broker.id", (0, Int.MaxValue)))
+    } catch {
+      case e: FileNotFoundException =>
+        (false, -1)
+    }
+    (false, -1)
+  }
+
+  private def storeBrokerId(brokerId: Int, logDirs: Seq[String]) {
+    val metaProps = new Properties()
+    metaProps.setProperty("broker.id", brokerId.toString);
+    for(logDir <- logDirs) {
+      val f = Utils.createFile(logDir+"/"+metaPropsFile)
+      val out = new FileOutputStream(f)
+      metaProps.store(out,"")
+    }
+  }
+}

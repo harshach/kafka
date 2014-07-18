@@ -35,13 +35,13 @@ class KafkaConfig private (val props: VerifiableProperties) extends ZKConfig(pro
   private def getLogRetentionTimeMillis(): Long = {
     val millisInMinute = 60L * 1000L
     val millisInHour = 60L * millisInMinute
-    
+
     if(props.containsKey("log.retention.ms")){
        props.getIntInRange("log.retention.ms", (1, Int.MaxValue))
     }
     else if(props.containsKey("log.retention.minutes")){
        millisInMinute * props.getIntInRange("log.retention.minutes", (1, Int.MaxValue))
-    } 
+    }
     else {
        millisInHour * props.getIntInRange("log.retention.hours", 24*7, (1, Int.MaxValue))
     }
@@ -49,7 +49,7 @@ class KafkaConfig private (val props: VerifiableProperties) extends ZKConfig(pro
 
   private def getLogRollTimeMillis(): Long = {
     val millisInHour = 60L * 60L * 1000L
-    
+
     if(props.containsKey("log.roll.ms")){
        props.getIntInRange("log.roll.ms", (1, Int.MaxValue))
     }
@@ -57,11 +57,11 @@ class KafkaConfig private (val props: VerifiableProperties) extends ZKConfig(pro
        millisInHour * props.getIntInRange("log.roll.hours", 24*7, (1, Int.MaxValue))
     }
   }
-  
+
   /*********** General Configuration ***********/
 
   /* the broker id for this server */
-  val brokerId: Int = props.getIntInRange("broker.id", (0, Int.MaxValue))
+  var brokerId: Int = if (props.containsKey("broker.id")) props.getIntInRange("broker.id", (0, 1000)) else -1
 
   /* the maximum size of message that the server can receive */
   val messageMaxBytes = props.getIntInRange("message.max.bytes", 1000000 + MessageSet.LogOverhead, (0, Int.MaxValue))

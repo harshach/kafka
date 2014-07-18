@@ -90,7 +90,7 @@ object TestUtils extends Logging {
         Utils.rm(f)
       }
     })
-    
+
     f
   }
 
@@ -150,7 +150,7 @@ object TestUtils extends Logging {
   def createBrokerConfig(nodeId: Int, port: Int = choosePort(),
     enableControlledShutdown: Boolean = true): Properties = {
     val props = new Properties
-    props.put("broker.id", nodeId.toString)
+    if (nodeId >= 0) props.put("broker.id", nodeId.toString)
     props.put("host.name", "localhost")
     props.put("port", port.toString)
     props.put("log.dir", TestUtils.tempDir().getAbsolutePath)
