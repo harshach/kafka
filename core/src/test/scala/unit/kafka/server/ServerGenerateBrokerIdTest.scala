@@ -44,6 +44,7 @@ class ServerGenerateBrokerIdTest extends JUnit3Suite with ZooKeeperTestHarness {
     }
     // restart the server check to see if it uses the brokerId generated previously
     server1 = new KafkaServer(config1)
+    server1.startup()
     assertEquals(server1.config.brokerId, 1001)
     server1.shutdown()
     Utils.rm(server1.config.logDirs)
@@ -51,13 +52,15 @@ class ServerGenerateBrokerIdTest extends JUnit3Suite with ZooKeeperTestHarness {
 
     // start the server with broker.id as part of config
     var server2 = new KafkaServer(config2)
+    server2.startup()
     assertEquals(server2.config.brokerId,0)
     server2.shutdown()
     Utils.rm(server2.config.logDirs)
 
     // add multiple logDirs and check if the generate brokerId is stored in all of them
     props2 = TestUtils.createBrokerConfig(-1, port)
-    var logDirs = props2.getProperty("log.dir")+","+TestUtils.tempDir().getAbsolutePath
+    var logDirs = props2.getProperty("log.dir")+ "," + TestUtils.tempDir().getAbsolutePath +
+      "," + TestUtils.tempDir().getAbsolutePath
     props2.setProperty("log.dir",logDirs)
     config2 = new KafkaConfig(props2)
     server1 = new KafkaServer(config2)
@@ -82,6 +85,15 @@ class ServerGenerateBrokerIdTest extends JUnit3Suite with ZooKeeperTestHarness {
       val metaProps = new VerifiableProperties(Utils.loadProps(logDir+"/meta.properties"))
       assertTrue(metaProps.containsKey("broker.id"))
       assertEquals(metaProps.getInt("broker.id"),1003)
+    }
+    server1.shutdown()
+    // check if configured brokerId and stored brokerId are equal or throw InconsistentBrokerException
+    props2 = TestUtils.createBrokerConfig(0,port)
+    config2 = new KafkaConfig(props2)
+    try {
+      server1.startup()
+    } catch {
+      case e: kafka.common.InconsistentBrokerIdException => //success
     }
     server1.shutdown()
     Utils.rm(server1.config.logDirs)

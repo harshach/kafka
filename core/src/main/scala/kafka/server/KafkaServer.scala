@@ -335,38 +335,43 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
   }
 
   /**
-    * if the config has brokerId return brokeId, otherwise generates a sequence id from ZK uses it has brokerId.
-    * Stores the generated zk sequence id in meta.properties file under all logDirs in config.
+    * if kafka server config has brokerId  and there is no meta.properties file returns the config.brokerId,
+    * otherwise generates a sequence id from ZK uses it has a brokerId.
+    * stores the generated zk sequence id in meta.properties under logDirs specified in config.
+    * if config has brokerId and meta.properties contains brokerId if they don't match throws InconsistentBrokerIdException
   */
   private def getBrokerId(zkClient: ZkClient, configBrokerId: Int, logDirs: Seq[String]): Int =  {
     var brokerId = configBrokerId
     var logDirsWithoutMetaProps: List[String] = List()
     val metaBrokerIdSet = mutable.HashSet[Int]()
-    if (brokerId < 0) {
-      for (logDir <- logDirs) {
-        val (succeeded, metaBrokerId) = readBrokerIdFromMetaProps(logDir)
-        if(!succeeded) {
-          logDirsWithoutMetaProps ++= List(logDir)
-        } else {
-          metaBrokerIdSet.add(metaBrokerId)
-        }
-      }
 
-      if(metaBrokerIdSet.size > 1) {
-        throw new InconsistentBrokerIdException("unable to match brokerId across logDirs")
-      } else if(metaBrokerIdSet.size == 0) {
+    for (logDir <- logDirs) {
+      val (succeeded, metaBrokerId) = readBrokerIdFromMetaProps(logDir)
+      if(!succeeded) {
+        logDirsWithoutMetaProps ++= List(logDir)
+      } else {
+        metaBrokerIdSet.add(metaBrokerId)
+      }
+    }
+
+    if(metaBrokerIdSet.size > 1) {
+      throw new InconsistentBrokerIdException("unable to match brokerId across logDirs")
+    } else if(brokerId >= 0 && metaBrokerIdSet.size == 1 && metaBrokerIdSet.last != brokerId) {
+      throw new InconsistentBrokerIdException("configured brokerId doesn't match stored brokerId in meta.properties")
+    } else if(metaBrokerIdSet.size == 0) {
+      if(brokerId < 0) {
         brokerId = ZkUtils.getBrokerSequenceId(zkClient)
       } else {
-        brokerId = metaBrokerIdSet.last
+        return brokerId
       }
-      storeBrokerId(brokerId, logDirsWithoutMetaProps)
     }
+    storeBrokerId(brokerId, logDirsWithoutMetaProps)
     return brokerId
   }
 
   private def readBrokerIdFromMetaProps(logDir: String): (Boolean, Int) = {
     try {
-      val metaProps = new VerifiableProperties(Utils.loadProps(logDir+"/meta.properties"))
+      val metaProps = new VerifiableProperties(Utils.loadProps(logDir + File.separator + metaPropsFile))
       if (metaProps.containsKey("broker.id"))
         return (true, metaProps.getIntInRange("broker.id", (0, Int.MaxValue)))
     } catch {
@@ -380,7 +385,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
     val metaProps = new Properties()
     metaProps.setProperty("broker.id", brokerId.toString);
     for(logDir <- logDirs) {
-      val f = Utils.createFile(logDir+"/"+metaPropsFile)
+      val f = Utils.createFile(logDir + File.separator + metaPropsFile)
       val out = new FileOutputStream(f)
       metaProps.store(out,"")
     }
