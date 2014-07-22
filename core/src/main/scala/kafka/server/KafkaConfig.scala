@@ -27,6 +27,8 @@ import kafka.utils.{VerifiableProperties, ZKConfig, Utils}
  */
 class KafkaConfig private (val props: VerifiableProperties) extends ZKConfig(props) {
 
+  val ReservedBrokerIdMaxValue = 1000
+
   def this(originalProps: Properties) {
     this(new VerifiableProperties(originalProps))
     props.verify()
@@ -60,8 +62,11 @@ class KafkaConfig private (val props: VerifiableProperties) extends ZKConfig(pro
 
   /*********** General Configuration ***********/
 
-  /* the broker id for this server */
-  var brokerId: Int = if (props.containsKey("broker.id")) props.getIntInRange("broker.id", (0, 1000)) else -1
+  /* The broker id for this server.
+   * To avoid conflicts between zookeeper generated brokerId and user's config.brokerId
+   * added ReservedBrokerIdMaxValue and zookeeper sequence starts from ReservedBrokerIdMaxValue + 1.
+   */
+  var brokerId: Int = if (props.containsKey("broker.id")) props.getIntInRange("broker.id", (0, ReservedBrokerIdMaxValue)) else -1
 
   /* the maximum size of message that the server can receive */
   val messageMaxBytes = props.getIntInRange("message.max.bytes", 1000000 + MessageSet.LogOverhead, (0, Int.MaxValue))
@@ -106,10 +111,10 @@ class KafkaConfig private (val props: VerifiableProperties) extends ZKConfig(pro
 
   /* the maximum number of bytes in a socket request */
   val socketRequestMaxBytes: Int = props.getIntInRange("socket.request.max.bytes", 100*1024*1024, (1, Int.MaxValue))
-  
+
   /* the maximum number of connections we allow from each ip address */
   val maxConnectionsPerIp: Int = props.getIntInRange("max.connections.per.ip", Int.MaxValue, (1, Int.MaxValue))
-  
+
   /* per-ip or hostname overrides to the default maximum number of connections */
   val maxConnectionsPerIpOverrides = props.getMap("max.connections.per.ip.overrides").map(entry => (entry._1, entry._2.toInt))
 

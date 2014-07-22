@@ -346,12 +346,14 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
     val metaBrokerIdSet = mutable.HashSet[Int]()
 
     for (logDir <- logDirs) {
-      val (succeeded, metaBrokerId) = readBrokerIdFromMetaProps(logDir)
-      if(!succeeded) {
-        logDirsWithoutMetaProps ++= List(logDir)
-      } else {
-        metaBrokerIdSet.add(metaBrokerId)
+      val metaBrokerIdOpt = readBrokerIdFromMetaProps(logDir)
+      metaBrokerIdOpt match {
+        case Some(metaBrokerId) =>
+          metaBrokerIdSet.add(metaBrokerId)
+        case None =>
+          logDirsWithoutMetaProps ++= List(logDir)
       }
+
     }
 
     if(metaBrokerIdSet.size > 1) {
@@ -369,16 +371,16 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
     return brokerId
   }
 
-  private def readBrokerIdFromMetaProps(logDir: String): (Boolean, Int) = {
+  private def readBrokerIdFromMetaProps(logDir: String): Option[Int] = {
     try {
       val metaProps = new VerifiableProperties(Utils.loadProps(logDir + File.separator + metaPropsFile))
       if (metaProps.containsKey("broker.id"))
-        return (true, metaProps.getIntInRange("broker.id", (0, Int.MaxValue)))
+        return Some(metaProps.getIntInRange("broker.id", (0, Int.MaxValue)))
     } catch {
       case e: FileNotFoundException =>
-        (false, -1)
+        None
     }
-    (false, -1)
+    None
   }
 
   private def storeBrokerId(brokerId: Int, logDirs: Seq[String]) {
