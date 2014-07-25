@@ -689,6 +689,13 @@ object TestUtils extends Logging {
   def checkIfReassignPartitionPathExists(zkClient: ZkClient): Boolean = {
     ZkUtils.pathExists(zkClient, ZkUtils.ReassignPartitionsPath)
   }
+
+  def verifyNonDaemonThreadsStatus() {
+    assertEquals(0, Thread.getAllStackTraces.keySet().toArray
+      .map(_.asInstanceOf[Thread])
+      .count(t => !t.isDaemon && t.isAlive && t.getClass.getCanonicalName.toLowerCase.startsWith("kafka")))
+  }
+
 }
 
 object TestZKUtils {

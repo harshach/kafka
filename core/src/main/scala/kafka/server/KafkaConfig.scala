@@ -27,8 +27,6 @@ import kafka.utils.{VerifiableProperties, ZKConfig, Utils}
  */
 class KafkaConfig private (val props: VerifiableProperties) extends ZKConfig(props) {
 
-  val ReservedBrokerIdMaxValue = 1000
-
   def this(originalProps: Properties) {
     this(new VerifiableProperties(originalProps))
     props.verify()
@@ -62,11 +60,14 @@ class KafkaConfig private (val props: VerifiableProperties) extends ZKConfig(pro
 
   /*********** General Configuration ***********/
 
+  /* Max number that can be used for a broker.id  */
+  val MaxReservedBrokerId = props.getIntInRange("reserved.broker.max.id", 1000, (0, Int.MaxValue))
+
   /* The broker id for this server.
    * To avoid conflicts between zookeeper generated brokerId and user's config.brokerId
-   * added ReservedBrokerIdMaxValue and zookeeper sequence starts from ReservedBrokerIdMaxValue + 1.
+   * added MaxReservedBrokerId and zookeeper sequence starts from MaxReservedBrokerId + 1.
    */
-  var brokerId: Int = if (props.containsKey("broker.id")) props.getIntInRange("broker.id", (0, ReservedBrokerIdMaxValue)) else -1
+  var brokerId: Int = if (props.containsKey("broker.id")) props.getIntInRange("broker.id", (0, MaxReservedBrokerId)) else -1
 
   /* the maximum size of message that the server can receive */
   val messageMaxBytes = props.getIntInRange("message.max.bytes", 1000000 + MessageSet.LogOverhead, (0, Int.MaxValue))

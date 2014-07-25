@@ -92,7 +92,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
     logManager.startup()
 
     /* generate brokerId */
-    config.brokerId =  getBrokerId(zkClient, config.brokerId, config.logDirs)
+    config.brokerId =  getBrokerId(zkClient, config)
     this.logIdent = "[Kafka Server " + config.brokerId + "], "
 
     socketServer = new SocketServer(config.brokerId,
@@ -336,16 +336,16 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
 
   /**
     * if kafka server config has brokerId  and there is no meta.properties file returns the config.brokerId,
-    * otherwise generates a sequence id from ZK uses it has a brokerId.
+    * otherwise generates a sequence id from ZK uses it as the brokerId.
     * stores the generated zk sequence id in meta.properties under logDirs specified in config.
     * if config has brokerId and meta.properties contains brokerId if they don't match throws InconsistentBrokerIdException
   */
-  private def getBrokerId(zkClient: ZkClient, configBrokerId: Int, logDirs: Seq[String]): Int =  {
-    var brokerId = configBrokerId
+  private def getBrokerId(zkClient: ZkClient, config: KafkaConfig): Int =  {
+    var brokerId = config.brokerId
     var logDirsWithoutMetaProps: List[String] = List()
     val metaBrokerIdSet = mutable.HashSet[Int]()
 
-    for (logDir <- logDirs) {
+    for (logDir <- config.logDirs) {
       val metaBrokerIdOpt = readBrokerIdFromMetaProps(logDir)
       metaBrokerIdOpt match {
         case Some(metaBrokerId) =>
@@ -362,12 +362,17 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
       throw new InconsistentBrokerIdException("configured brokerId doesn't match stored brokerId in meta.properties")
     } else if(metaBrokerIdSet.size == 0) {
       if(brokerId < 0) {
-        brokerId = ZkUtils.getBrokerSequenceId(zkClient)
+        brokerId = ZkUtils.getBrokerSequenceId(zkClient,config.MaxReservedBrokerId)
       } else {
         return brokerId
       }
+    } else {
+      brokerId = metaBrokerIdSet.last
     }
-    storeBrokerId(brokerId, logDirsWithoutMetaProps)
+
+    if(!logDirsWithoutMetaProps.isEmpty)
+      storeBrokerId(brokerId, logDirsWithoutMetaProps)
+
     return brokerId
   }
 
@@ -378,7 +383,11 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
         return Some(metaProps.getIntInRange("broker.id", (0, Int.MaxValue)))
     } catch {
       case e: FileNotFoundException =>
+        warn("unable to read meta.properties file under dir %s due to %s".format(logDir, e.getMessage))
         None
+      case e1: Exception =>
+        error("unable to read meta.properties file under dir %s due to %s".format(logDir, e1.getMessage))
+        throw e1
     }
     None
   }
@@ -390,6 +399,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
       val f = Utils.createFile(logDir + File.separator + metaPropsFile)
       val out = new FileOutputStream(f)
       metaProps.store(out,"")
+      out.getFD().sync();
+      out.close();
     }
   }
 }

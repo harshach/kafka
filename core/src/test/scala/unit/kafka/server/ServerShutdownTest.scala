@@ -63,7 +63,7 @@ class ServerShutdownTest extends JUnit3Suite with ZooKeeperTestHarness {
       assertTrue(OffsetCheckpointFile.length() > 0)
     }
     producer.close()
-    
+
     /* now restart the server and check that the written data is still readable and everything still works */
     server = new KafkaServer(config)
     server.startup()
@@ -98,7 +98,7 @@ class ServerShutdownTest extends JUnit3Suite with ZooKeeperTestHarness {
     producer.close()
     server.shutdown()
     Utils.rm(server.config.logDirs)
-    verifyNonDaemonThreadsStatus
+    TestUtils.verifyNonDaemonThreadsStatus
   }
 
   @Test
@@ -111,12 +111,7 @@ class ServerShutdownTest extends JUnit3Suite with ZooKeeperTestHarness {
     server.shutdown()
     server.awaitShutdown()
     Utils.rm(server.config.logDirs)
-    verifyNonDaemonThreadsStatus
+    TestUtils.verifyNonDaemonThreadsStatus
   }
 
-  def verifyNonDaemonThreadsStatus() {
-    assertEquals(0, Thread.getAllStackTraces.keySet().toArray
-      .map(_.asInstanceOf[Thread])
-      .count(t => !t.isDaemon && t.isAlive && t.getClass.getCanonicalName.toLowerCase.startsWith("kafka")))
-  }
 }
