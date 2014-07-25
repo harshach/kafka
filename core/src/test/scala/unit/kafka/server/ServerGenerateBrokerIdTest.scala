@@ -50,6 +50,7 @@ class ServerGenerateBrokerIdTest extends JUnit3Suite with ZooKeeperTestHarness {
     TestUtils.verifyNonDaemonThreadsStatus
   }
 
+  @Test
   def testUserConfigAndGenratedBrokerId() {
     // start the server with broker.id as part of config
     val server1 = new KafkaServer(config1)
@@ -71,6 +72,7 @@ class ServerGenerateBrokerIdTest extends JUnit3Suite with ZooKeeperTestHarness {
     TestUtils.verifyNonDaemonThreadsStatus
   }
 
+  @Test
   def testMultipleLogDirsMetaProps() {
     // add multiple logDirs and check if the generate brokerId is stored in all of them
     var logDirs = props1.getProperty("log.dir")+ "," + TestUtils.tempDir().getAbsolutePath +
