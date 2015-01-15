@@ -212,12 +212,14 @@ class OffsetManager(val config: OffsetManagerConfig,
                    consumerId: String,
                    generationId: Int,
                    offsetMetadata: immutable.Map[TopicAndPartition, OffsetAndMetadata],
+                   nonExistentTopics: Set[String],
                    responseCallback: immutable.Map[TopicAndPartition, Short] => Unit) {
 
-    // first filter out partitions with offset metadata size exceeding limit
+    // first filter out partitions with offset metadata size exceeding limit or
+    // if its a non existing topic
     // TODO: in the future we may want to only support atomic commit and hence fail the whole commit
     val filteredOffsetMetadata = offsetMetadata.filter { case (topicAndPartition, offsetAndMetadata) =>
-      validateOffsetMetadataLength(offsetAndMetadata.metadata)
+      validateOffsetMetadataLength(offsetAndMetadata.metadata) || nonExistentTopics.contains(topicAndPartition.topic)
     }
 
     // construct the message set to append
@@ -241,7 +243,7 @@ class OffsetManager(val config: OffsetManagerConfig,
           .format(responseStatus, offsetTopicPartition))
 
       // construct the commit response status and insert
-      // the offset and metadata to cache iff the append status has no error
+      // the offset and metadata to cache if the append status has no error
       val status = responseStatus(offsetTopicPartition)
 
       val responseCode =
@@ -266,7 +268,9 @@ class OffsetManager(val config: OffsetManagerConfig,
 
       // compute the final error codes for the commit response
       val commitStatus = offsetMetadata.map { case (topicAndPartition, offsetAndMetadata) =>
-        if (validateOffsetMetadataLength(offsetAndMetadata.metadata))
+        if (nonExistentTopics.contains(topicAndPartition.topic))
+          (topicAndPartition, ErrorMapping.UnknownTopicOrPartitionCode)
+        else if (validateOffsetMetadataLength(offsetAndMetadata.metadata))
           (topicAndPartition, responseCode)
         else
           (topicAndPartition, ErrorMapping.OffsetMetadataTooLargeCode)

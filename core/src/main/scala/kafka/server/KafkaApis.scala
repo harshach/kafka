@@ -149,13 +149,18 @@ class KafkaApis(val requestChannel: RequestChannel,
       val response = OffsetCommitResponse(commitStatus, offsetCommitRequest.correlationId)
       requestChannel.sendResponse(new RequestChannel.Response(request, new BoundedByteBufferSend(response)))
     }
-
+    val topics = offsetCommitRequest.requestInfo.map { case (topicAndPartition, offsetMetadata) =>
+      topicAndPartition.topic
+    }.toSet
+    val topicResponses = metadataCache.getTopicMetadata(topics)
+    val nonExistentTopics = topics -- topicResponses.map(_.topic).toSet
     // call offset manager to store offsets
     offsetManager.storeOffsets(
       offsetCommitRequest.groupId,
       offsetCommitRequest.consumerId,
       offsetCommitRequest.groupGenerationId,
       offsetCommitRequest.requestInfo,
+      nonExistentTopics,
       sendResponseCallback)
   }
 
@@ -273,7 +278,7 @@ class KafkaApis(val requestChannel: RequestChannel,
             val hw = localReplica.highWatermark.messageOffset
             if (allOffsets.exists(_ > hw))
               hw +: allOffsets.dropWhile(_ > hw)
-            else 
+            else
               allOffsets
           }
         }
@@ -297,19 +302,19 @@ class KafkaApis(val requestChannel: RequestChannel,
     val response = OffsetResponse(offsetRequest.correlationId, responseMap)
     requestChannel.sendResponse(new RequestChannel.Response(request, new BoundedByteBufferSend(response)))
   }
-  
+
   def fetchOffsets(logManager: LogManager, topicAndPartition: TopicAndPartition, timestamp: Long, maxNumOffsets: Int): Seq[Long] = {
     logManager.getLog(topicAndPartition) match {
-      case Some(log) => 
+      case Some(log) =>
         fetchOffsetsBefore(log, timestamp, maxNumOffsets)
-      case None => 
+      case None =>
         if (timestamp == OffsetRequest.LatestTime || timestamp == OffsetRequest.EarliestTime)
           Seq(0L)
         else
           Nil
     }
   }
-  
+
   private def fetchOffsetsBefore(log: Log, timestamp: Long, maxNumOffsets: Int): Seq[Long] = {
     val segsArray = log.logSegments.toArray
     var offsetTimeArray: Array[(Long, Long)] = null
@@ -496,4 +501,3 @@ class KafkaApis(val requestChannel: RequestChannel,
     debug("Shut down complete.")
   }
 }
-
