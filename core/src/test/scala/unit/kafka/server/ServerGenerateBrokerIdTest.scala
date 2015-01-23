@@ -16,100 +16,74 @@
   */
 package kafka.server
 
-import kafka.zk.ZooKeeperTestHarness
+import kafka.integration.KafkaServerTestHarness
 import kafka.utils.{TestUtils, Utils}
 import org.junit.Test
 import org.scalatest.junit.JUnit3Suite
 import junit.framework.Assert._
 import java.io.File
 
-class ServerGenerateBrokerIdTest extends JUnit3Suite with ZooKeeperTestHarness {
-  var props1 = TestUtils.createBrokerConfig(-1, TestUtils.choosePort)
-  var config1 = new KafkaConfig(props1)
-  var props2 = TestUtils.createBrokerConfig(0, TestUtils.choosePort)
-  var config2 = new KafkaConfig(props2)
+class ServerGenerateBrokerIdTest extends JUnit3Suite with KafkaServerTestHarness {
+  val configs = List(new KafkaConfig(TestUtils.createBrokerConfig(-1, TestUtils.choosePort)),
+    new KafkaConfig(TestUtils.createBrokerConfig(0, TestUtils.choosePort)),
+    new KafkaConfig(TestUtils.createBrokerConfig(-1, TestUtils.choosePort)))
   val brokerMetaPropsFile = "meta.properties"
 
 
   @Test
   def testAutoGenerateBrokerId() {
-    var server1 = new KafkaServer(config1)
-    server1.startup()
-    server1.shutdown()
-    assertTrue(verifyBrokerMetadata(config1.logDirs, 1001))
+    servers.head.shutdown()
+    assertTrue(verifyBrokerMetadata(servers.head.config.logDirs, 1001))
     // restart the server check to see if it uses the brokerId generated previously
-    server1 = new KafkaServer(config1)
-    server1.startup()
-    assertEquals(server1.config.brokerId, 1001)
-    server1.shutdown()
-    Utils.rm(server1.config.logDirs)
-    TestUtils.verifyNonDaemonThreadsStatus
+    servers.head.startup()
+    assertEquals(servers.head.config.brokerId, 1001)
+
   }
 
   @Test
   def testUserConfigAndGeneratedBrokerId() {
     // start the server with broker.id as part of config
-    val server1 = new KafkaServer(config1)
-    val server2 = new KafkaServer(config2)
-    val props3 = TestUtils.createBrokerConfig(-1, TestUtils.choosePort)
-    val config3 = new KafkaConfig(props3)
-    val server3 = new KafkaServer(config3)
-    server1.startup()
-    assertEquals(server1.config.brokerId,1001)
-    server2.startup()
-    assertEquals(server2.config.brokerId,0)
-    server3.startup()
-    assertEquals(server3.config.brokerId,1002)
-    server1.shutdown()
-    server2.shutdown()
-    server3.shutdown()
-    assertTrue(verifyBrokerMetadata(server1.config.logDirs,1001))
-    assertTrue(verifyBrokerMetadata(server2.config.logDirs,0))
-    assertTrue(verifyBrokerMetadata(server3.config.logDirs,1002))
-    Utils.rm(server1.config.logDirs)
-    Utils.rm(server2.config.logDirs)
-    Utils.rm(server3.config.logDirs)
-    TestUtils.verifyNonDaemonThreadsStatus
+    val expectedBrokerIds = List(1001, 0, 1002)
+      (servers zip expectedBrokerIds).map {
+        case (server, expectedBrokerId) =>
+          assertEquals(server.config.brokerId, expectedBrokerId)
+          assertTrue(verifyBrokerMetadata(server.config.logDirs, expectedBrokerId))
+      }
   }
 
   @Test
   def testMultipleLogDirsMetaProps() {
     // add multiple logDirs and check if the generate brokerId is stored in all of them
-    val logDirs = props1.getProperty("log.dir")+ "," + TestUtils.tempDir().getAbsolutePath +
+    var server = servers.head
+    assertEquals(server.config.brokerId, 1001)
+    val logDirs = server.config.logDirs.mkString(",") + "," + TestUtils.tempDir().getAbsolutePath +
     "," + TestUtils.tempDir().getAbsolutePath
-    props1.setProperty("log.dir",logDirs)
-    config1 = new KafkaConfig(props1)
-    var server1 = new KafkaServer(config1)
-    server1.startup()
-    server1.shutdown()
-    assertTrue(verifyBrokerMetadata(config1.logDirs, 1001))
-    // addition to log.dirs after generation of a broker.id from zk should be copied over
-    val newLogDirs = props1.getProperty("log.dir") + "," + TestUtils.tempDir().getAbsolutePath
-    props1.setProperty("log.dir",newLogDirs)
-    config1 = new KafkaConfig(props1)
-    server1 = new KafkaServer(config1)
-    server1.startup()
-    server1.shutdown()
-    assertTrue(verifyBrokerMetadata(config1.logDirs, 1001))
-    Utils.rm(server1.config.logDirs)
-    TestUtils.verifyNonDaemonThreadsStatus
+    val kafkaConfigProps = TestUtils.createBrokerConfig(-1, TestUtils.choosePort)
+    kafkaConfigProps.setProperty("log.dir", logDirs)
+    val kafkaConfig = new KafkaConfig(kafkaConfigProps)
+    server.shutdown()
+    server = new KafkaServer(kafkaConfig)
+    server.startup()
+    assertTrue(verifyBrokerMetadata(server.config.logDirs, 1001))
+    server.shutdown()
+    Utils.rm(server.config.logDirs)
   }
 
   @Test
   def testConsistentBrokerIdFromUserConfigAndMetaProps() {
     // check if configured brokerId and stored brokerId are equal or throw InconsistentBrokerException
-    var server1 = new KafkaServer(config1) //auto generate broker Id
-    server1.startup()
-    server1.shutdown()
-    server1 = new KafkaServer(config2) // user specified broker id
+    var server = servers.head
+    val kafkaConfigProps = TestUtils.createBrokerConfig(0, TestUtils.choosePort())
+    kafkaConfigProps.setProperty("log.dir", server.config.logDirs.mkString(","))
+    server.shutdown()
+    server = new KafkaServer(new KafkaConfig(kafkaConfigProps)) // user specified broker id
     try {
-      server1.startup()
+      server.startup()
     } catch {
       case e: kafka.common.InconsistentBrokerIdException => //success
     }
-    server1.shutdown()
-    Utils.rm(server1.config.logDirs)
-    TestUtils.verifyNonDaemonThreadsStatus
+    server.shutdown()
+    Utils.rm(server.config.logDirs)
   }
 
   def verifyBrokerMetadata(logDirs: Seq[String], brokerId: Int): Boolean = {
@@ -124,4 +98,5 @@ class ServerGenerateBrokerIdTest extends JUnit3Suite with ZooKeeperTestHarness {
     }
     true
   }
+
 }
