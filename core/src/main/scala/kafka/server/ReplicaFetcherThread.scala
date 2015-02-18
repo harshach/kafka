@@ -24,6 +24,8 @@ import kafka.message.ByteBufferMessageSet
 import kafka.api.{OffsetRequest, FetchResponsePartitionData}
 import kafka.common.{KafkaStorageException, TopicAndPartition}
 
+import scala.collection.{mutable, Map}
+
 class ReplicaFetcherThread(name:String,
                            sourceBroker: Broker,
                            brokerConfig: KafkaConfig,
@@ -38,6 +40,7 @@ class ReplicaFetcherThread(name:String,
                                 maxWait = brokerConfig.replicaFetchWaitMaxMs,
                                 minBytes = brokerConfig.replicaFetchMinBytes,
                                 isInterruptible = false) {
+
 
   // process fetched data
   def processPartitionData(topicAndPartition: TopicAndPartition, fetchOffset: Long, partitionData: FetchResponsePartitionData) {
@@ -119,6 +122,14 @@ class ReplicaFetcherThread(name:String,
 
   // any logic for partitions whose leader has changed
   def handlePartitionsWithErrors(partitions: Iterable[TopicAndPartition]) {
-    // no handler needed since the controller will make the changes accordingly
+    for (partition <- partitions) {
+      if(!partitionsWithErrorMap.contains(partition)) {
+        partitionsWithErrorMap.put(partition, System.currentTimeMillis())
+        currentOffset(partition) match {
+          case Some(offset: Long) =>  partitionsWithErrorStandbyMap.put(partition, offset)
+        }
+      }
+    }
   }
+
 }
