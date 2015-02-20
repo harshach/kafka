@@ -23,7 +23,7 @@ import scala.collection.Map
 import kafka.utils.{Utils, Logging}
 import kafka.cluster.Broker
 import kafka.metrics.KafkaMetricsGroup
-import kafka.common.{TopicAndPartition, OffsetAndState}
+import kafka.common.TopicAndPartition
 import com.yammer.metrics.core.Gauge
 
 abstract class AbstractFetcherManager(protected val name: String, clientId: String, numFetchers: Int = 1)
@@ -85,7 +85,7 @@ abstract class AbstractFetcherManager(protected val name: String, clientId: Stri
         }
 
         fetcherThreadMap(brokerAndFetcherId).addPartitions(partitionAndOffsets.map { case (topicAndPartition, brokerAndInitOffset) =>
-          topicAndPartition -> OffsetAndState(brokerAndInitOffset.initOffset)
+          topicAndPartition -> new OffsetAndDelay(brokerAndInitOffset.initOffset)
         })
       }
     }

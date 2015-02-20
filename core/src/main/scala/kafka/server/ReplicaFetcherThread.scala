@@ -122,14 +122,7 @@ class ReplicaFetcherThread(name:String,
 
   // any logic for partitions whose leader has changed
   def handlePartitionsWithErrors(partitions: Iterable[TopicAndPartition]) {
-    for (partition <- partitions) {
-      if(!partitionsWithErrorMap.contains(partition)) {
-        partitionsWithErrorMap.put(partition, System.currentTimeMillis())
-        currentOffset(partition) match {
-          case Some(offset: Long) =>  partitionsWithErrorStandbyMap.put(partition, offset)
-        }
-      }
-    }
+    delayPartitions(partitions, brokerConfig.replicaFetcherRetryBackoffMs)
   }
 
 }

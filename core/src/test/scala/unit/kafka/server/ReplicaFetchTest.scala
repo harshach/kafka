@@ -73,4 +73,38 @@ class ReplicaFetchTest extends JUnit3Suite with ZooKeeperTestHarness  {
     }
     waitUntilTrue(logsMatch, "Broker logs should be identical")
   }
+
+  def testReplicaFetcherThreadAfterBrokerShutdown() {
+    val partition = 0
+    val testMessageList1 = List("test1", "test2", "test3", "test4")
+    val testMessageList2 = List("test5", "test6", "test7", "test8")
+
+    // create a topic and partition and await leadership
+    for (topic <- List(topic1,topic2)) {
+      createTopic(zkClient, topic, numPartitions = 1, replicationFactor = 2, servers = brokers)
+    }
+
+    // send test messages to leader
+    val producer = TestUtils.createProducer[String, String](TestUtils.getBrokerListStrFromConfigs(configs),
+      encoder = classOf[StringEncoder].getName,
+      keyEncoder = classOf[StringEncoder].getName)
+    val messages = testMessageList1.map(m => new KeyedMessage(topic1, m, m)) ++ testMessageList2.map(m => new KeyedMessage(topic2, m, m))
+    producer.send(messages:_*)
+    producer.close()
+    println("calling shutdown")
+    brokers.head.shutdown()
+
+    def logsMatch(): Boolean = {
+      var result = true
+      for (topic <- List(topic1, topic2)) {
+        val topicAndPart = TopicAndPartition(topic, partition)
+        val expectedOffset = brokers.head.getLogManager().getLog(topicAndPart).get.logEndOffset
+        println("expectedOffset "+expectedOffset)
+        result = result && expectedOffset > 0 && brokers.foldLeft(true) { (total, item) => total &&
+          (expectedOffset == item.getLogManager().getLog(topicAndPart).get.logEndOffset) }
+      }
+      result
+    }
+    waitUntilTrue(logsMatch, "Broker logs should be identical")
+  }
 }

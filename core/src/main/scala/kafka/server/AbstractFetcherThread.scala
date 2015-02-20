@@ -21,8 +21,9 @@ import kafka.cluster.Broker
 import kafka.utils.{Pool, ShutdownableThread}
 import kafka.consumer.{PartitionTopicInfo, SimpleConsumer}
 import kafka.api.{FetchRequest, FetchResponse, FetchResponsePartitionData, FetchRequestBuilder}
-import kafka.common.{KafkaException, ClientIdAndBroker, TopicAndPartition, ErrorMapping, OffsetAndState}
+import kafka.common.{KafkaException, ClientIdAndBroker, TopicAndPartition, ErrorMapping}
 import kafka.utils.Utils.inLock
+import kafka.utils.DelayedItem
 import kafka.message.{InvalidMessageException, ByteBufferMessageSet, MessageAndOffset}
 import kafka.metrics.KafkaMetricsGroup
 
@@ -40,7 +41,7 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
                                      fetchSize: Int, fetcherBrokerId: Int = -1, maxWait: Int = 0, minBytes: Int = 1,
                                      isInterruptible: Boolean = true)
   extends ShutdownableThread(name, isInterruptible) {
-  private val partitionMap = new mutable.HashMap[TopicAndPartition, OffsetAndState] // a (topic, partition) -> offsetandstate map
+  private val partitionMap = new mutable.HashMap[TopicAndPartition, OffsetAndDelay] // a (topic, partition) -> offsetandstate map
   private val partitionMapLock = new ReentrantLock
   private val partitionMapCond = partitionMapLock.newCondition()
   val simpleConsumer = new SimpleConsumer(sourceBroker.host, sourceBroker.port, socketTimeout, socketBufferSize, clientId)
@@ -110,12 +111,13 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
         response.data.foreach {
           case(topicAndPartition, partitionData) =>
             val (topic, partitionId) = topicAndPartition.asTuple
-            val currentOffsetAndStateOpt: Option[OffsetAndState] = partitionMap.get(topicAndPartition)
-            currentOffsetAndStateOpt match {
-              case Some(currentOffsetAndState) =>
+            println("current partition " + topicAndPartition)
+            val currentOffsetAndDelayOpt: Option[OffsetAndDelay] = partitionMap.get(topicAndPartition)
+            currentOffsetAndDelayOpt match {
+              case Some(currentOffsetAndDelay) =>
                 // we append to the log if the current offset is defined and it is the same as the offset requested during fetch
-                if (currentOffsetAndState.isActive &&
-                  fetchRequest.requestInfo(topicAndPartition).offset == currentOffsetAndState.offset) {
+                if (currentOffsetAndDelay.isActive &&
+                  fetchRequest.requestInfo(topicAndPartition).offset == currentOffsetAndDelay.offset) {
                   partitionData.error match {
                     case ErrorMapping.NoError =>
                       try {
@@ -123,13 +125,13 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
                         val validBytes = messages.validBytes
                         val newOffset = messages.shallowIterator.toSeq.lastOption match {
                           case Some(m: MessageAndOffset) => m.nextOffset
-                          case None => currentOffsetAndState.offset
+                          case None => currentOffsetAndDelay.offset
                         }
-                        partitionMap.put(topicAndPartition, OffsetAndState(newOffset))
+                        partitionMap.put(topicAndPartition, new OffsetAndDelay(newOffset))
                         fetcherLagStats.getFetcherLagStats(topic, partitionId).lag = partitionData.hw - newOffset
                         fetcherStats.byteRate.mark(validBytes)
                         // Once we hand off the partition data to the subclass, we can't mess with it any more in this thread
-                        processPartitionData(topicAndPartition, currentOffsetAndState.offset, partitionData)
+                        processPartitionData(topicAndPartition, currentOffsetAndDelay.offset, partitionData)
                       } catch {
                         case ime: InvalidMessageException =>
                           // we log the error and continue. This ensures two things
@@ -137,17 +139,17 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
                           // 2. If the message is corrupt due to a transient state in the log (truncation, partial writes can cause this), we simply continue and
                           //    should get fixed in the subsequent fetches
                           logger.error("Found invalid messages during fetch for partition [" + topic + "," + partitionId + "] offset " +
-                            currentOffsetAndState.offset + " error " + ime.getMessage)
+                            currentOffsetAndDelay.offset + " error " + ime.getMessage)
                         case e: Throwable =>
                           throw new KafkaException("error processing data for partition [%s,%d] offset %d"
-                            .format(topic, partitionId, currentOffsetAndState.offset), e)
+                            .format(topic, partitionId, currentOffsetAndDelay.offset), e)
                       }
                     case ErrorMapping.OffsetOutOfRangeCode =>
                       try {
                         val newOffset = handleOffsetOutOfRange(topicAndPartition)
-                        partitionMap.put(topicAndPartition, OffsetAndState(newOffset, 0))
+                        partitionMap.put(topicAndPartition, new OffsetAndDelay(newOffset))
                         error("Current offset %d for partition [%s,%d] out of range; reset offset to %d"
-                          .format(currentOffsetAndState.offset, topic, partitionId, newOffset))
+                          .format(currentOffsetAndDelay.offset, topic, partitionId, newOffset))
                       } catch {
                         case e: Throwable =>
                           error("Error getting offset for partition [%s,%d] to broker %d".format(topic, partitionId, sourceBroker.id), e)
@@ -155,6 +157,8 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
                       }
                     case _ =>
                       if (isRunning.get) {
+                        println(error("Error for partition [%s,%d] to broker %d:%s".format(topic, partitionId, sourceBroker.id,
+                          ErrorMapping.exceptionFor(partitionData.error).getClass)))
                         error("Error for partition [%s,%d] to broker %d:%s".format(topic, partitionId, sourceBroker.id,
                           ErrorMapping.exceptionFor(partitionData.error).getClass))
                         partitionsWithError += topicAndPartition
@@ -173,7 +177,7 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
     }
   }
 
-  def addPartitions(partitionAndOffsets: Map[TopicAndPartition, OffsetAndState]) {
+  def addPartitions(partitionAndOffsets: Map[TopicAndPartition, OffsetAndDelay]) {
     partitionMapLock.lockInterruptibly()
     try {
       for ((topicAndPartition, offsetAndState) <- partitionAndOffsets) {
@@ -181,8 +185,8 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
         if (!partitionMap.contains(topicAndPartition))
           partitionMap.put(
             topicAndPartition,
-            if (PartitionTopicInfo.isOffsetInvalid(offsetAndState.offset)) OffsetAndState(handleOffsetOutOfRange(topicAndPartition))
-            else OffsetAndState(offsetAndState.offset)
+            if (PartitionTopicInfo.isOffsetInvalid(offsetAndState.offset)) new OffsetAndDelay(handleOffsetOutOfRange(topicAndPartition))
+            else new OffsetAndDelay(offsetAndState.offset)
           )
       }
       partitionMapCond.signalAll()
@@ -191,11 +195,17 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
     }
   }
 
-  def delayPartitions(partitionAndOffsets: Map[TopicAndPartition, OffsetAndState]) {
+  def delayPartitions(partitions: Iterable[TopicAndPartition], delay: Long) {
     partitionMapLock.lockInterruptibly()
     try {
-      for ((topicAndPartition, offsetAndState) <- partitionAndOffsets) {
-          partitionMap.put(topicAndPartition, offsetAndState)
+      for (partition <- partitions) {
+        val currentOffsetAndDelayOpt: Option[OffsetAndDelay] = partitionMap.get(partition)
+        currentOffsetAndDelayOpt match {
+          case Some(currentOffsetAndDelay) =>
+            if(currentOffsetAndDelay.isActive) // add a delay only if its active
+              partitionMap.put(partition, OffsetAndDelay(currentOffsetAndDelay.offset, new DelayedItem(delay)))
+          case None => // do nothing
+        }
       }
       partitionMapCond.signalAll()
     } finally {
@@ -207,15 +217,6 @@ abstract class AbstractFetcherThread(name: String, clientId: String, sourceBroke
     partitionMapLock.lockInterruptibly()
     try {
       topicAndPartitions.foreach(tp => partitionMap.remove(tp))
-    } finally {
-      partitionMapLock.unlock()
-    }
-  }
-
-  def currentOffset(topicAndPartition: TopicAndPartition): Option[OffsetAndState] = {
-    partitionMapLock.lockInterruptibly()
-    try {
-      partitionMap.get(topicAndPartition)
     } finally {
       partitionMapLock.unlock()
     }
