@@ -85,7 +85,7 @@ abstract class AbstractFetcherManager(protected val name: String, clientId: Stri
         }
 
         fetcherThreadMap(brokerAndFetcherId).addPartitions(partitionAndOffsets.map { case (topicAndPartition, brokerAndInitOffset) =>
-          topicAndPartition -> brokerAndInitOffset.initOffset
+          topicAndPartition -> new OffsetAndDelay(brokerAndInitOffset.initOffset)
         })
       }
     }

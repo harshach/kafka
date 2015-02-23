@@ -270,6 +270,11 @@ class KafkaConfig private (val props: VerifiableProperties) extends ZKConfig(pro
   /* the frequency with which the high watermark is saved out to disk */
   val replicaHighWatermarkCheckpointIntervalMs = props.getLong("replica.high.watermark.checkpoint.interval.ms", 5000L)
 
+  /** Before each replica fetch, the system needs time to recover from the state that caused the previous failure (leader
+    * migration, connection timeouts etc). This config determines the amount of time to wait before retrying. */
+  val replicaFetcherRetryBackoffMs = props.getInt("replica.fetch.retry.backoff.ms", 10000)
+
+
   /* the purge interval (in number of requests) of the fetch request purgatory */
   val fetchPurgatoryPurgeIntervalRequests = props.getInt("fetch.purgatory.purge.interval.requests", 1000)
 
