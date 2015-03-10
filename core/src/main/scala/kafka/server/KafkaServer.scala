@@ -126,6 +126,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = SystemTime) extends Logg
           config.socketRequestMaxBytes,
           config.maxConnectionsPerIp,
           config.connectionsMaxIdleMs,
+          config.sslEnable,
+          config.sslConfigFilePath,
           config.maxConnectionsPerIpOverrides)
         socketServer.startup()
 

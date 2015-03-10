@@ -23,12 +23,16 @@ import java.util.concurrent.atomic._
 import java.net._
 import java.io._
 import java.nio.channels._
+import javax.net.ssl.SSLEngine
 
 import scala.collection._
 
 import kafka.common.KafkaException
 import kafka.metrics.KafkaMetricsGroup
 import kafka.utils._
+import kafka.network.ssl._
+import kafka.utils.SSLAuthUtils
+
 import com.yammer.metrics.core.{Gauge, Meter}
 
 /**
@@ -47,11 +51,13 @@ class SocketServer(val brokerId: Int,
                    val maxRequestSize: Int = Int.MaxValue,
                    val maxConnectionsPerIp: Int = Int.MaxValue,
                    val connectionsMaxIdleMs: Long,
+                   val sslEnable: Boolean = false,
+                   val sslConfigFilePath: String = null,
                    val maxConnectionsPerIpOverrides: Map[String, Int] ) extends Logging with KafkaMetricsGroup {
   this.logIdent = "[Socket Server on Broker " + brokerId + "], "
   private val time = SystemTime
   private val processors = new Array[Processor](numProcessorThreads)
-  @volatile private var acceptor: Acceptor = null
+  @volatile private var acceptors: List[Acceptor] = List()
   val requestChannel = new RequestChannel(numProcessorThreads, maxQueuedRequests)
 
   /* a meter to track the average free capacity of the network processors */
@@ -63,12 +69,12 @@ class SocketServer(val brokerId: Int,
   def startup() {
     val quotas = new ConnectionQuotas(maxConnectionsPerIp, maxConnectionsPerIpOverrides)
     for(i <- 0 until numProcessorThreads) {
-      processors(i) = new Processor(i, 
-                                    time, 
-                                    maxRequestSize, 
+      processors(i) = new Processor(i,
+                                    time,
+                                    maxRequestSize,
                                     aggregateIdleMeter,
                                     newMeter("IdlePercent", "percent", TimeUnit.NANOSECONDS, Map("networkProcessor" -> i.toString)),
-                                    numProcessorThreads, 
+                                    numProcessorThreads,
                                     requestChannel,
                                     quotas,
                                     connectionsMaxIdleMs)
@@ -81,12 +87,18 @@ class SocketServer(val brokerId: Int,
 
     // register the processor threads for notification of responses
     requestChannel.addResponseListener((id:Int) => processors(id).wakeup())
-   
+
     // start accepting connections
-    this.acceptor = new Acceptor(host, port, processors, sendBufferSize, recvBufferSize, quotas)
-    Utils.newThread("kafka-socket-acceptor", acceptor, false).start()
-    acceptor.awaitStartup
-    info("Started")
+    this.acceptors  ++=  List(new Acceptor(host, port, processors, sendBufferSize, recvBufferSize, quotas))
+    if (sslEnable) {
+      val sslConnectionConfig = new SSLConnectionConfig(sslConfigFilePath)
+      this.acceptors ++= List(new Acceptor(sslConnectionConfig.host, sslConnectionConfig.port, processors, sendBufferSize, recvBufferSize, quotas, sslConnectionConfig, sslEnable))
+    }
+    for (acceptor <- acceptors) {
+      Utils.newThread("kafka-socket-acceptor", acceptor, false).start()
+      acceptor.awaitStartup
+      info("Started")
+    }
   }
 
   /**
@@ -94,8 +106,10 @@ class SocketServer(val brokerId: Int,
    */
   def shutdown() = {
     info("Shutting down")
-    if(acceptor != null)
-      acceptor.shutdown()
+    for(acceptor <- acceptors) {
+      if(acceptor != null)
+        acceptor.shutdown()
+    }
     for(processor <- processors)
       processor.shutdown()
     info("Shutdown completed")
@@ -142,12 +156,12 @@ private[kafka] abstract class AbstractServerThread(connectionQuotas: ConnectionQ
    * Is the server still running?
    */
   protected def isRunning = alive.get
-  
+
   /**
    * Wakeup the thread for selection.
    */
   def wakeup() = selector.wakeup()
-  
+
   /**
    * Close the given key and associated socket
    */
@@ -158,7 +172,7 @@ private[kafka] abstract class AbstractServerThread(connectionQuotas: ConnectionQ
       swallowError(key.cancel())
     }
   }
-  
+
   def close(channel: SocketChannel) {
     if(channel != null) {
       debug("Closing connection from " + channel.socket.getRemoteSocketAddress())
@@ -167,13 +181,13 @@ private[kafka] abstract class AbstractServerThread(connectionQuotas: ConnectionQ
       swallowError(channel.close())
     }
   }
-  
+
   /**
    * Close all open connections
    */
   def closeAll() {
     // removes cancelled keys from selector.keys set
-    this.selector.selectNow() 
+    this.selector.selectNow()
     val iter = this.selector.keys().iterator()
     while (iter.hasNext) {
       val key = iter.next()
@@ -196,13 +210,16 @@ private[kafka] abstract class AbstractServerThread(connectionQuotas: ConnectionQ
 /**
  * Thread that accepts and configures new connections. There is only need for one of these
  */
-private[kafka] class Acceptor(val host: String, 
-                              val port: Int, 
+private[kafka] class Acceptor(val host: String,
+                              val port: Int,
                               private val processors: Array[Processor],
-                              val sendBufferSize: Int, 
+                              val sendBufferSize: Int,
                               val recvBufferSize: Int,
-                              connectionQuotas: ConnectionQuotas) extends AbstractServerThread(connectionQuotas) {
+                              connectionQuotas: ConnectionQuotas,
+                              val sslConnectionConfig: SSLConnectionConfig = null,
+                              val sslEnable: Boolean = false) extends AbstractServerThread(connectionQuotas) {
   val serverChannel = openServerSocket(host, port)
+  if(sslEnable) SSLAuthUtils.initializeSSLAuth(sslConnectionConfig)
 
   /**
    * Accept loop that checks for new connection attempts
@@ -239,12 +256,12 @@ private[kafka] class Acceptor(val host: String,
     swallowError(selector.close())
     shutdownComplete()
   }
-  
+
   /*
    * Create a server socket to listen for connections on.
    */
   def openServerSocket(host: String, port: Int): ServerSocketChannel = {
-    val socketAddress = 
+    val socketAddress =
       if(host == null || host.trim.isEmpty)
         new InetSocketAddress(port)
       else
@@ -256,7 +273,7 @@ private[kafka] class Acceptor(val host: String,
       serverChannel.socket.bind(socketAddress)
       info("Awaiting socket connections on %s:%d.".format(socketAddress.getHostName, port))
     } catch {
-      case e: SocketException => 
+      case e: SocketException =>
         throw new KafkaException("Socket server failed to bind to %s:%d: %s.".format(socketAddress.getHostName, port, e.getMessage), e)
     }
     serverChannel
@@ -277,14 +294,30 @@ private[kafka] class Acceptor(val host: String,
       debug("Accepted connection from %s on %s. sendBufferSize [actual|requested]: [%d|%d] recvBufferSize [actual|requested]: [%d|%d]"
             .format(socketChannel.socket.getInetAddress, socketChannel.socket.getLocalSocketAddress,
                   socketChannel.socket.getSendBufferSize, sendBufferSize,
-                  socketChannel.socket.getReceiveBufferSize, recvBufferSize))
+              socketChannel.socket.getReceiveBufferSize, recvBufferSize))
+      var channel:Channel = null
+      if (sslEnable) {
+        val sslEngine =  createSSLEngine(socketChannel)
+        channel = new SSLChannel(socketChannel, sslEngine)
+      } else
+        channel = new Channel(socketChannel)
 
-      processor.accept(socketChannel)
+      processor.accept(socketChannel, channel)
     } catch {
       case e: TooManyConnectionsException =>
         info("Rejected connection from %s, address already has the configured maximum of %d connections.".format(e.ip, e.count))
         close(socketChannel)
     }
+  }
+
+  private def createSSLEngine(socketChannel: SocketChannel) : SSLEngine = {
+    val sslEngine = SSLAuthUtils.sslContext.createSSLEngine(socketChannel.socket.getInetAddress.getHostName, socketChannel.socket.getPort)
+    //do not allow ssl, sslv2, sslv3 as they have known vulnerabilities
+    sslEngine.setEnabledProtocols(Array("TLSv1.2", "TLSv1.1", "TLSv1", "SSLv2Hello"))
+    sslEngine.setNeedClientAuth(sslConnectionConfig.needClientAuth)
+    sslEngine.setWantClientAuth(sslConnectionConfig.wantClientAuth)
+    sslEngine.setUseClientMode(false)
+    sslEngine
   }
 
 }
@@ -308,6 +341,7 @@ private[kafka] class Processor(val id: Int,
   private var currentTimeNanos = SystemTime.nanoseconds
   private val lruConnections = new util.LinkedHashMap[SelectionKey, Long]
   private var nextIdleCloseCheckTime = currentTimeNanos + connectionsMaxIdleNanos
+  private val socketContainer = new ConcurrentHashMap[SocketChannel, Channel]()
 
   override def run() {
     startupComplete()
@@ -333,17 +367,38 @@ private[kafka] class Processor(val id: Int,
         val iter = keys.iterator()
         while(iter.hasNext && isRunning) {
           var key: SelectionKey = null
+          var channel: Channel = null
           try {
             key = iter.next
+            channel = socketContainer.get(channelFor(key))
+            println("in channel")
             iter.remove()
-            if(key.isReadable)
-              read(key)
-            else if(key.isWritable)
-              write(key)
-            else if(!key.isValid)
+            if(key.isReadable) {
+              if (channel.isHandshakeComplete()) {
+                read(key)
+              } else {
+                val handShakeStatus = channel.handshake(key.isReadable(), key.isWritable())
+                if (handShakeStatus == 0)
+                  key.interestOps(SelectionKey.OP_READ)
+                else
+                  key.interestOps(handShakeStatus)
+              }
+            } else if(key.isWritable) {
+              if (channel.isHandshakeComplete())
+                write(key)
+              else {
+                val handShakeStatus = channel.handshake(key.isReadable(), key.isWritable())
+                if (handShakeStatus == 0)
+                  key.interestOps(SelectionKey.OP_READ)
+                else
+                  key.interestOps(handShakeStatus)
+              }
+
+            } else if(!key.isValid) {
               close(key)
-            else
+            } else {
               throw new IllegalStateException("Unrecognized key state for processor thread.")
+            }
           } catch {
             case e: EOFException => {
               info("Closing socket connection to %s.".format(channelFor(key).socket.getInetAddress))
@@ -371,6 +426,9 @@ private[kafka] class Processor(val id: Int,
    */
   override def close(key: SelectionKey): Unit = {
     lruConnections.remove(key)
+    val channel = socketContainer.get(channelFor(key))
+    channel.close()
+    socketContainer.remove(channelFor(key))
     super.close(key)
   }
 
@@ -414,8 +472,9 @@ private[kafka] class Processor(val id: Int,
   /**
    * Queue up a new connection for reading
    */
-  def accept(socketChannel: SocketChannel) {
+  def accept(socketChannel: SocketChannel, channel: Channel) {
     newConnections.add(socketChannel)
+    socketContainer.put(socketChannel, channel)
     wakeup()
   }
 
@@ -435,18 +494,19 @@ private[kafka] class Processor(val id: Int,
    */
   def read(key: SelectionKey) {
     lruConnections.put(key, currentTimeNanos)
-    val socketChannel = channelFor(key)
+    val channel = socketContainer.get(channelFor(key))
     var receive = key.attachment.asInstanceOf[Receive]
     if(key.attachment == null) {
       receive = new BoundedByteBufferReceive(maxRequestSize)
       key.attach(receive)
     }
-    val read = receive.readFrom(socketChannel)
-    val address = socketChannel.socket.getRemoteSocketAddress();
-    trace(read + " bytes read from " + address)
+    val read = receive.readFrom(channel)
+    val address = channel.getIOChannel.socket.getRemoteSocketAddress();
+    println(read + " bytes read from " + address)
     if(read < 0) {
       close(key)
     } else if(receive.complete) {
+      println("receive complete")
       val req = RequestChannel.Request(processor = id, requestKey = key, buffer = receive.buffer, startTimeMs = time.milliseconds, remoteAddress = address)
       requestChannel.sendRequest(req)
       key.attach(null)
@@ -454,7 +514,7 @@ private[kafka] class Processor(val id: Int,
       key.interestOps(key.interestOps & (~SelectionKey.OP_READ))
     } else {
       // more reading to be done
-      trace("Did not finish reading, registering for read again on connection " + socketChannel.socket.getRemoteSocketAddress())
+      trace("Did not finish reading, registering for read again on connection " + channel.getIOChannel.socket.getRemoteSocketAddress())
       key.interestOps(SelectionKey.OP_READ)
       wakeup()
     }
@@ -464,20 +524,20 @@ private[kafka] class Processor(val id: Int,
    * Process writes to ready sockets
    */
   def write(key: SelectionKey) {
-    val socketChannel = channelFor(key)
+    val channel = socketContainer.get(channelFor(key))
     val response = key.attachment().asInstanceOf[RequestChannel.Response]
     val responseSend = response.responseSend
     if(responseSend == null)
       throw new IllegalStateException("Registered for write interest but no response attached to key.")
-    val written = responseSend.writeTo(socketChannel)
-    trace(written + " bytes written to " + socketChannel.socket.getRemoteSocketAddress() + " using key " + key)
+    val written = responseSend.writeTo(channel)
+    trace(written + " bytes written to " + channel.getIOChannel.socket.getRemoteSocketAddress() + " using key " + key)
     if(responseSend.complete) {
       response.request.updateRequestMetrics()
       key.attach(null)
-      trace("Finished writing, registering for read on connection " + socketChannel.socket.getRemoteSocketAddress())
+      trace("Finished writing, registering for read on connection " + channel.getIOChannel.socket.getRemoteSocketAddress())
       key.interestOps(SelectionKey.OP_READ)
     } else {
-      trace("Did not finish writing, registering for write again on connection " + socketChannel.socket.getRemoteSocketAddress())
+      trace("Did not finish writing, registering for write again on connection " + channel.getIOChannel.socket.getRemoteSocketAddress())
       key.interestOps(SelectionKey.OP_WRITE)
       wakeup()
     }
@@ -508,7 +568,7 @@ private[kafka] class Processor(val id: Int,
 class ConnectionQuotas(val defaultMax: Int, overrideQuotas: Map[String, Int]) {
   private val overrides = overrideQuotas.map(entry => (InetAddress.getByName(entry._1), entry._2))
   private val counts = mutable.Map[InetAddress, Int]()
-  
+
   def inc(addr: InetAddress) {
     counts synchronized {
       val count = counts.getOrElse(addr, 0)
@@ -518,7 +578,7 @@ class ConnectionQuotas(val defaultMax: Int, overrideQuotas: Map[String, Int]) {
         throw new TooManyConnectionsException(addr, max)
     }
   }
-  
+
   def dec(addr: InetAddress) {
     counts synchronized {
       val count = counts.get(addr).get
@@ -528,7 +588,7 @@ class ConnectionQuotas(val defaultMax: Int, overrideQuotas: Map[String, Int]) {
         counts.put(addr, count - 1)
     }
   }
-  
+
 }
 
 class TooManyConnectionsException(val ip: InetAddress, val count: Int) extends KafkaException("Too many connections from %s (maximum = %d)".format(ip, count))

@@ -17,6 +17,7 @@
 
 package kafka.server
 
+import java.io.File
 import java.util.Properties
 
 import kafka.consumer.ConsumerConfig
@@ -884,6 +885,38 @@ class KafkaConfig(/** ********* Zookeeper Configuration ***********/
     props.put(DeleteTopicEnableProp, deleteTopicEnable.toString)
     props.put(CompressionTypeProp, compressionType.toString)
 
-    props
-  }
+  /** Offsets older than this retention period will be discarded. */
+  val offsetsRetentionMinutes: Int = props.getIntInRange("offsets.retention.minutes", 24*60, (1, Integer.MAX_VALUE))
+
+  /** Frequency at which to check for stale offsets. */
+  val offsetsRetentionCheckIntervalMs: Long = props.getLongInRange("offsets.retention.check.interval.ms",
+    OffsetManagerConfig.DefaultOffsetsRetentionCheckIntervalMs, (1, Long.MaxValue))
+
+  /* Offset commit will be delayed until all replicas for the offsets topic receive the commit or this timeout is
+   * reached. This is similar to the producer request timeout. */
+   val offsetCommitTimeoutMs = props.getIntInRange("offsets.commit.timeout.ms",
+    OffsetManagerConfig.DefaultOffsetCommitTimeoutMs, (1, Integer.MAX_VALUE))
+
+  /** The required acks before the commit can be accepted. In general, the default (-1) should not be overridden. */
+  val offsetCommitRequiredAcks = props.getShortInRange("offsets.commit.required.acks",
+    OffsetManagerConfig.DefaultOffsetCommitRequiredAcks, (-1, offsetsTopicReplicationFactor))
+
+  /* Enables delete topic. Delete topic through the admin tool will have no effect if this config is turned off */
+  val deleteTopicEnable = props.getBoolean("delete.topic.enable", false)
+
+  /**
+   * Specify the final compression type for a given topic. This configuration accepts the standard compression codecs
+   * ('gzip', 'snappy', lz4). It additionally accepts 'uncompressed' which is equivalent to no compression; and
+   * 'producer' which means retain the original compression codec set by the producer."
+   */
+  val compressionType = props.getString("compression.type", "producer").toLowerCase()
+  require(BrokerCompressionCodec.isValid(compressionType), "compression.type : "+compressionType + " is not valid." +
+    " Valid options are "+BrokerCompressionCodec.brokerCompressionOptions.mkString(","))
+
+  /**
+    *  SSL Conenction config for server
+    */
+  val sslEnable = props.getBoolean("ssl.enable", false)
+  val sslConfigFilePath = props.getString("ssl.connection.config.file", null)
+
 }
