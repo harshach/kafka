@@ -36,7 +36,7 @@ object SSLAuthUtils extends Logging {
 
   def initializeSSLAuth(config: SSLConnectionConfig) {
     if(!initialized.get) {
-      info("Initializing ssl authentication")
+      info("Initializing SSL authentication")
       val keyStore = getKeyStore(config.keystoreType)
       context = keyStore.initialize(config)
       initialized.set(true)

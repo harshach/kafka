@@ -498,7 +498,6 @@ private[kafka] class Processor(val id: Int,
     if(read < 0) {
       close(key)
     } else if(receive.complete) {
-      println("receive complete")
       val req = RequestChannel.Request(processor = id, requestKey = key, buffer = receive.buffer, startTimeMs = time.milliseconds, remoteAddress = address)
       requestChannel.sendRequest(req)
       key.attach(null)

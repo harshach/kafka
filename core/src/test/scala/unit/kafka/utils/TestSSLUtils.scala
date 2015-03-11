@@ -123,6 +123,7 @@ object TestSSLUtils extends Logging {
     saveKeyStore(ks, filename, password)
   }
 
+  // a simple X509TrustManager to trust self-generate certs for unit tests.
   def trustAllCerts: X509TrustManager = {
     val trustManager = new X509TrustManager() {
       override def getAcceptedIssuers: Array[X509Certificate] = {
@@ -139,7 +140,7 @@ object TestSSLUtils extends Logging {
   /**
     * Creates a temporary ssl config file
     */
-  def tempSslConfigFile(): File = {
+  def createSslConfigFile(): File = {
     val certs =  new HashMap[String, X509Certificate]
     val keyPair = generateKeyPair("RSA")
     val cert = generateCertificate("CN=localhost, O=localhost", keyPair, 30, "SHA1withRSA")

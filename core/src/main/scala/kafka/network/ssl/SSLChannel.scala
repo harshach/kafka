@@ -92,9 +92,9 @@ class SSLChannel(socketChannel: SocketChannel, sslEngine: SSLEngine) extends Cha
   }
 
   /**
-    * Performs SSL handshake, non blocking, but performs NEED_TASK on the same thread.<br>
+    * Performs SSL handshake, non blocking, but performs NEED_TASK on the same thread.
     * Hence, you should never call this method using your Acceptor thread, as you would slow down
-    * your system significantly.<br>
+    * your system significantly.
     * The return for this operation is 0 if the handshake is complete and a positive value if it is not complete.
     * In the event of a positive value coming back, reregister the selection key for the return values interestOps.
     * @param read boolean - true if the underlying channel is readable

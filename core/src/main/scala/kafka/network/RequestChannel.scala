@@ -136,7 +136,6 @@ class RequestChannel(val numProcessors: Int, val queueSize: Int) extends KafkaMe
 
   /** Send a request to be handled, potentially blocking until there is room in the queue for the request */
   def sendRequest(request: RequestChannel.Request) {
-    println("adding to the requestQueue")
     requestQueue.put(request)
   }
 
@@ -167,7 +166,6 @@ class RequestChannel(val numProcessors: Int, val queueSize: Int) extends KafkaMe
 
   /** Get the next request or block until there is one */
   def receiveRequest(): RequestChannel.Request = {
-    println("taking from requestQueue")
     requestQueue.take()
   }
 
