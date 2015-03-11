@@ -17,7 +17,6 @@
 
 package kafka.server
 
-import java.io.File
 import java.util.Properties
 
 import kafka.consumer.ConsumerConfig
@@ -123,6 +122,10 @@ object Defaults {
   val DeleteTopicEnable = false
 
   val CompressionType = "producer"
+
+  /** ********* SSL configuration ********************/
+  val SslEnable = false
+  val SslConfigFilePath = new String("")
 }
 
 object KafkaConfig {
@@ -226,6 +229,8 @@ object KafkaConfig {
 
   val DeleteTopicEnableProp = "delete.topic.enable"
   val CompressionTypeProp = "compression.type"
+  val SslEnableProp = "ssl.enable"
+  val SslConfigFilePathProp =  "ssl.connection.config.file"
 
 
   /* Documentation */
@@ -342,7 +347,9 @@ object KafkaConfig {
   val DeleteTopicEnableDoc = "Enables delete topic. Delete topic through the admin tool will have no effect if this config is turned off"
   val CompressionTypeDoc = "Specify the final compression type for a given topic. This configuration accepts the standard compression codecs " +
     "('gzip', 'snappy', lz4). It additionally accepts 'uncompressed' which is equivalent to no compression; and " +
-    "'producer' which means retain the original compression codec set by the producer."
+  "'producer' which means retain the original compression codec set by the producer."
+  val SslEnableDoc = "Enables SSL socket server."
+  val SslConfigFilePathDoc = "SSL connection config properties file path."
 
 
   private val configDef = {
@@ -458,6 +465,10 @@ object KafkaConfig {
       .define(OffsetCommitRequiredAcksProp, SHORT, Defaults.OffsetCommitRequiredAcks, HIGH, OffsetCommitRequiredAcksDoc)
       .define(DeleteTopicEnableProp, BOOLEAN, Defaults.DeleteTopicEnable, HIGH, DeleteTopicEnableDoc)
       .define(CompressionTypeProp, STRING, Defaults.CompressionType, HIGH, CompressionTypeDoc)
+
+      /** ********* SSL configuration ********************/
+      .define(SslEnableProp, BOOLEAN, Defaults.SslEnable, MEDIUM, SslEnableDoc)
+      .define(SslConfigFilePathProp, STRING, Defaults.SslConfigFilePath, MEDIUM, SslConfigFilePathDoc)
   }
 
   def configNames() = {
@@ -575,7 +586,12 @@ object KafkaConfig {
       offsetCommitTimeoutMs = parsed.get(OffsetCommitTimeoutMsProp).asInstanceOf[Int],
       offsetCommitRequiredAcks = parsed.get(OffsetCommitRequiredAcksProp).asInstanceOf[Short],
       deleteTopicEnable = parsed.get(DeleteTopicEnableProp).asInstanceOf[Boolean],
-      compressionType = parsed.get(CompressionTypeProp).asInstanceOf[String]
+      compressionType = parsed.get(CompressionTypeProp).asInstanceOf[String],
+
+      /** ********* SSL configuration ********************/
+      sslEnable = parsed.get(SslEnableProp).asInstanceOf[Boolean],
+      sslConfigFilePath = parsed.get(SslConfigFilePathProp).asInstanceOf[String]
+
     )
   }
 
@@ -716,7 +732,11 @@ class KafkaConfig(/** ********* Zookeeper Configuration ***********/
                   val offsetCommitRequiredAcks: Short = Defaults.OffsetCommitRequiredAcks,
 
                   val deleteTopicEnable: Boolean = Defaults.DeleteTopicEnable,
-                  val compressionType: String = Defaults.CompressionType
+                  val compressionType: String = Defaults.CompressionType,
+
+                  /** ********* SSL configuration ********************/
+                  val sslEnable: Boolean = Defaults.SslEnable,
+                  val sslConfigFilePath: String = Defaults.SslConfigFilePath
                    ) {
 
   val zkConnectionTimeoutMs: Int = _zkConnectionTimeoutMs.getOrElse(zkSessionTimeoutMs)
@@ -885,38 +905,9 @@ class KafkaConfig(/** ********* Zookeeper Configuration ***********/
     props.put(DeleteTopicEnableProp, deleteTopicEnable.toString)
     props.put(CompressionTypeProp, compressionType.toString)
 
-  /** Offsets older than this retention period will be discarded. */
-  val offsetsRetentionMinutes: Int = props.getIntInRange("offsets.retention.minutes", 24*60, (1, Integer.MAX_VALUE))
-
-  /** Frequency at which to check for stale offsets. */
-  val offsetsRetentionCheckIntervalMs: Long = props.getLongInRange("offsets.retention.check.interval.ms",
-    OffsetManagerConfig.DefaultOffsetsRetentionCheckIntervalMs, (1, Long.MaxValue))
-
-  /* Offset commit will be delayed until all replicas for the offsets topic receive the commit or this timeout is
-   * reached. This is similar to the producer request timeout. */
-   val offsetCommitTimeoutMs = props.getIntInRange("offsets.commit.timeout.ms",
-    OffsetManagerConfig.DefaultOffsetCommitTimeoutMs, (1, Integer.MAX_VALUE))
-
-  /** The required acks before the commit can be accepted. In general, the default (-1) should not be overridden. */
-  val offsetCommitRequiredAcks = props.getShortInRange("offsets.commit.required.acks",
-    OffsetManagerConfig.DefaultOffsetCommitRequiredAcks, (-1, offsetsTopicReplicationFactor))
-
-  /* Enables delete topic. Delete topic through the admin tool will have no effect if this config is turned off */
-  val deleteTopicEnable = props.getBoolean("delete.topic.enable", false)
-
-  /**
-   * Specify the final compression type for a given topic. This configuration accepts the standard compression codecs
-   * ('gzip', 'snappy', lz4). It additionally accepts 'uncompressed' which is equivalent to no compression; and
-   * 'producer' which means retain the original compression codec set by the producer."
-   */
-  val compressionType = props.getString("compression.type", "producer").toLowerCase()
-  require(BrokerCompressionCodec.isValid(compressionType), "compression.type : "+compressionType + " is not valid." +
-    " Valid options are "+BrokerCompressionCodec.brokerCompressionOptions.mkString(","))
-
-  /**
-    *  SSL Conenction config for server
-    */
-  val sslEnable = props.getBoolean("ssl.enable", false)
-  val sslConfigFilePath = props.getString("ssl.connection.config.file", null)
-
+    /** ********* SSL configuration ********************/
+    props.put(SslEnableProp, sslEnable.toString)
+    props.put(SslConfigFilePathProp, sslConfigFilePath.toString)
+    props
+  }
 }

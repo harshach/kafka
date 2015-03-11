@@ -90,7 +90,7 @@ object RequestChannel extends Logging {
       }
     }
   }
-
+  
   case class Response(processor: Int, request: Request, responseSend: Send, responseAction: ResponseAction) {
     request.responseCompleteTimeMs = SystemTime.milliseconds
 
@@ -138,8 +138,8 @@ class RequestChannel(val numProcessors: Int, val queueSize: Int) extends KafkaMe
   def sendRequest(request: RequestChannel.Request) {
     requestQueue.put(request)
   }
-
-  /** Send a response back to the socket server to be sent over the network */
+  
+  /** Send a response back to the socket server to be sent over the network */ 
   def sendResponse(response: RequestChannel.Response) {
     responseQueues(response.processor).put(response)
     for(onResponse <- responseListeners)
@@ -165,9 +165,8 @@ class RequestChannel(val numProcessors: Int, val queueSize: Int) extends KafkaMe
     requestQueue.poll(timeout, TimeUnit.MILLISECONDS)
 
   /** Get the next request or block until there is one */
-  def receiveRequest(): RequestChannel.Request = {
+  def receiveRequest(): RequestChannel.Request =
     requestQueue.take()
-  }
 
   /** Get a response for the given processor if there is one */
   def receiveResponse(processor: Int): RequestChannel.Response = {
@@ -177,7 +176,7 @@ class RequestChannel(val numProcessors: Int, val queueSize: Int) extends KafkaMe
     response
   }
 
-  def addResponseListener(onResponse: Int => Unit) {
+  def addResponseListener(onResponse: Int => Unit) { 
     responseListeners ::= onResponse
   }
 
@@ -209,3 +208,4 @@ class RequestMetrics(name: String) extends KafkaMetricsGroup {
   val responseSendTimeHist = newHistogram("ResponseSendTimeMs", biased = true, tags)
   val totalTimeHist = newHistogram("TotalTimeMs", biased = true, tags)
 }
+

@@ -146,6 +146,9 @@ class KafkaConfigConfigDefTest extends JUnit3Suite {
 
     Assert.assertEquals(expectedConfig.deleteTopicEnable, actualConfig.deleteTopicEnable)
     Assert.assertEquals(expectedConfig.compressionType, actualConfig.compressionType)
+
+    Assert.assertEquals(expectedConfig.sslEnable, actualConfig.sslEnable)
+    Assert.assertEquals(expectedConfig.sslConfigFilePath, actualConfig.sslConfigFilePath)
   }
 
   private def atLeastXIntProp(x: Int): String = (nextInt(Int.MaxValue - 1) + x).toString
@@ -237,6 +240,7 @@ class KafkaConfigConfigDefTest extends JUnit3Suite {
         //BrokerCompressionCodec.isValid(compressionType)
         case KafkaConfig.CompressionTypeProp => expected.setProperty(name, randFrom(BrokerCompressionCodec.brokerCompressionOptions))
 
+        case KafkaConfig.SslEnableProp => expected.setProperty(name, randFrom("true", "false"))
         case nonNegativeIntProperty => expected.setProperty(name, nextInt(Int.MaxValue).toString)
       }
     })
@@ -339,7 +343,8 @@ class KafkaConfigConfigDefTest extends JUnit3Suite {
         case KafkaConfig.OffsetCommitRequiredAcksProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-2")
 
         case KafkaConfig.DeleteTopicEnableProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_boolean", "0")
-
+        case KafkaConfig.SslEnableProp => assertPropertyInvalid(getBaseProperties(), name, "not_a_boolean", "0")
+        case KafkaConfig.SslConfigFilePathProp => // ignore string
         case nonNegativeIntProperty => assertPropertyInvalid(getBaseProperties(), name, "not_a_number", "-1")
       }
     })

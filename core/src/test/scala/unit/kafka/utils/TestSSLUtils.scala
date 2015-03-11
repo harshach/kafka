@@ -123,7 +123,7 @@ object TestSSLUtils extends Logging {
     saveKeyStore(ks, filename, password)
   }
 
-  // a simple X509TrustManager to trust self-generate certs for unit tests.
+  // a X509TrustManager to trust self-signed certs for unit tests.
   def trustAllCerts: X509TrustManager = {
     val trustManager = new X509TrustManager() {
       override def getAcceptedIssuers: Array[X509Certificate] = {
@@ -170,6 +170,8 @@ object TestSSLUtils extends Logging {
     outputStream.getFD().sync()
     outputStream.close()
     f.deleteOnExit()
+    keyStoreFile.deleteOnExit()
+    trustStoreFiel.deleteOnExit()
     f
   }
 

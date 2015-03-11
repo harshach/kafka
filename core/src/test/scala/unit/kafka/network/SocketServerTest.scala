@@ -183,13 +183,8 @@ class SocketServerTest extends JUnitSuite {
     overrideServer.shutdown()
   }
 
-  /*
-   * To debug ssl connection details
-   * add System.setProperty("javax.net.debug", "all")
-   */
   @Test
   def testSslSocketServer() {
-
     val sslConfigFile = TestSSLUtils.createSslConfigFile()
     val overrideServer: SocketServer = new SocketServer(0,
                                                 host = null,

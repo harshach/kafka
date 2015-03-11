@@ -48,9 +48,7 @@ class SSLChannel(socketChannel: SocketChannel, sslEngine: SSLEngine) extends Cha
   var closing: Boolean = false
   startHandshake
 
-  //===========================================================================================
-  //                  NIO SSL METHODS
-  //===========================================================================================
+  /********** NIO SSL METHODS ************/
 
   /**
     * Start the ssl handshake.
