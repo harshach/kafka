@@ -242,7 +242,7 @@ class SSLChannel(socketChannel: SocketChannel, sslEngine: SSLEngine) extends Cha
   @throws(classOf[IOException])
   override def flushOutbound(): Boolean = {
     val remaining = netOutBuffer.remaining()
-    flush(netOutBuffer);
+    flush(netOutBuffer)
     val remaining2= netOutBuffer.remaining()
     remaining2 < remaining
   }

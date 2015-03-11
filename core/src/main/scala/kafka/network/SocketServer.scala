@@ -371,27 +371,20 @@ private[kafka] class Processor(val id: Int,
           try {
             key = iter.next
             channel = socketContainer.get(channelFor(key))
-            println("in channel")
             iter.remove()
             if(key.isReadable) {
               if (channel.isHandshakeComplete()) {
                 read(key)
               } else {
                 val handShakeStatus = channel.handshake(key.isReadable(), key.isWritable())
-                if (handShakeStatus == 0)
-                  key.interestOps(SelectionKey.OP_READ)
-                else
-                  key.interestOps(handShakeStatus)
+                if (handShakeStatus == 0) key.interestOps(SelectionKey.OP_READ) else key.interestOps(handShakeStatus)
               }
             } else if(key.isWritable) {
               if (channel.isHandshakeComplete())
                 write(key)
               else {
                 val handShakeStatus = channel.handshake(key.isReadable(), key.isWritable())
-                if (handShakeStatus == 0)
-                  key.interestOps(SelectionKey.OP_READ)
-                else
-                  key.interestOps(handShakeStatus)
+                if (handShakeStatus == 0) key.interestOps(SelectionKey.OP_READ) else key.interestOps(handShakeStatus)
               }
 
             } else if(!key.isValid) {
@@ -502,7 +495,6 @@ private[kafka] class Processor(val id: Int,
     }
     val read = receive.readFrom(channel)
     val address = channel.getIOChannel.socket.getRemoteSocketAddress();
-    println(read + " bytes read from " + address)
     if(read < 0) {
       close(key)
     } else if(receive.complete) {

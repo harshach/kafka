@@ -103,21 +103,6 @@ class Channel( var socketChannel: SocketChannel ) extends ReadableByteChannel wi
   }
 
 
-  // /**
-  //   * Selector related methods will be delegated to the underlying channel
-  //   */
-  // override def blockingLock: Object = {
-  //   socketChannel.blockingLock()
-  // }
-
-  // override def configureBlocking(block: Boolean): SelectableChannel = {
-  //   socketChannel.configureBlocking(block)
-  // }
-
-  // override def implCloseChannel() {
-  //   socketChannel.implCloseChannel()
-  // }
-
   /**
     * Performs SSL handshake hence is a no-op for the non-secure
     * implementation

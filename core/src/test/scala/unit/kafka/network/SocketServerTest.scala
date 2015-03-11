@@ -68,7 +68,7 @@ class SocketServerTest extends JUnitSuite {
   /* A simple request handler that just echos back the response */
   def processRequest(channel: RequestChannel) {
     println("in processRequest")
-    val request = channel.receiveRequest
+    val request = channel.receiveRequest(3000)
     println("allocating bytebuffer")
     val byteBuffer = ByteBuffer.allocate(request.requestObj.sizeInBytes)
     println("writing to ")
