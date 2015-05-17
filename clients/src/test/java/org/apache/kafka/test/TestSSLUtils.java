@@ -17,13 +17,14 @@
 
 package org.apache.kafka.test;
 
-import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.common.config.SecurityConfigs;
 import org.apache.kafka.common.network.SSLFactory;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.math.BigInteger;
+import javax.net.ssl.TrustManagerFactory;
 import java.security.GeneralSecurityException;
 import java.security.Key;
 import java.security.KeyPair;
@@ -163,33 +164,33 @@ public class TestSSLUtils {
     public static Map<String, Object> createSSLConfig(SSLFactory.Mode mode, File keyStoreFile, String password, String keyPassword,
                                                       File trustStoreFile, String trustStorePassword, boolean useClientCert) {
         Map<String, Object> sslConfigs = new HashMap<String, Object>();
-        sslConfigs.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, "SSL"); // kafka security protocol
-        sslConfigs.put(CommonClientConfigs.SSL_PROTOCOL_CONFIG, "TLS"); // protocol to create SSLContext
+        sslConfigs.put(SecurityConfigs.SECURITY_PROTOCOL_CONFIG, "SSL"); // kafka security protocol
+        sslConfigs.put(SecurityConfigs.SSL_PROTOCOL_CONFIG, "TLSv1.2"); // protocol to create SSLContext
 
         if (mode == SSLFactory.Mode.SERVER || (mode == SSLFactory.Mode.CLIENT && keyStoreFile != null)) {
-            sslConfigs.put(CommonClientConfigs.SSL_KEYSTORE_LOCATION_CONFIG, keyStoreFile.getPath());
-            sslConfigs.put(CommonClientConfigs.SSL_KEYSTORE_TYPE_CONFIG, "JKS");
-            sslConfigs.put(CommonClientConfigs.SSL_KEYMANAGER_ALGORITHM_CONFIG, "SunX509");
-            sslConfigs.put(CommonClientConfigs.SSL_KEYSTORE_PASSWORD_CONFIG, password);
-            sslConfigs.put(CommonClientConfigs.SSL_KEY_PASSWORD_CONFIG, keyPassword);
+            sslConfigs.put(SecurityConfigs.SSL_KEYSTORE_LOCATION_CONFIG, keyStoreFile.getPath());
+            sslConfigs.put(SecurityConfigs.SSL_KEYSTORE_TYPE_CONFIG, "JKS");
+            sslConfigs.put(SecurityConfigs.SSL_KEYMANAGER_ALGORITHM_CONFIG, TrustManagerFactory.getDefaultAlgorithm());
+            sslConfigs.put(SecurityConfigs.SSL_KEYSTORE_PASSWORD_CONFIG, password);
+            sslConfigs.put(SecurityConfigs.SSL_KEY_PASSWORD_CONFIG, keyPassword);
         }
 
-        sslConfigs.put(CommonClientConfigs.SSL_CLIENT_REQUIRE_CERT_CONFIG, useClientCert);
-        sslConfigs.put(CommonClientConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG, trustStoreFile.getPath());
-        sslConfigs.put(CommonClientConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG, trustStorePassword);
-        sslConfigs.put(CommonClientConfigs.SSL_TRUSTSTORE_TYPE_CONFIG, "JKS");
-        sslConfigs.put(CommonClientConfigs.SSL_TRUSTMANAGER_ALGORITHM_CONFIG, "SunX509");
+        sslConfigs.put(SecurityConfigs.SSL_CLIENT_REQUIRE_CERT_CONFIG, useClientCert);
+        sslConfigs.put(SecurityConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG, trustStoreFile.getPath());
+        sslConfigs.put(SecurityConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG, trustStorePassword);
+        sslConfigs.put(SecurityConfigs.SSL_TRUSTSTORE_TYPE_CONFIG, "JKS");
+        sslConfigs.put(SecurityConfigs.SSL_TRUSTMANAGER_ALGORITHM_CONFIG, TrustManagerFactory.getDefaultAlgorithm());
 
         List<String> enabledProtocols  = new ArrayList<String>();
         enabledProtocols.add("TLSv1.2");
-        sslConfigs.put(CommonClientConfigs.SSL_ENABLED_PROTOCOLS_CONFIG, enabledProtocols);
+        sslConfigs.put(SecurityConfigs.SSL_ENABLED_PROTOCOLS_CONFIG, enabledProtocols);
 
         return sslConfigs;
     }
 
-    public static Map<SSLFactory.Mode, Map<String, ?>> createSSLConfigs(boolean useClientCert, boolean trustStore)
+    public static Map<SSLFactory.Mode, Map<String, Object>> createSSLConfigs(boolean useClientCert, boolean trustStore)
         throws IOException, GeneralSecurityException {
-        Map<SSLFactory.Mode, Map<String, ?>> sslConfigs = new HashMap<SSLFactory.Mode, Map<String, ?>>();
+        Map<SSLFactory.Mode, Map<String, Object>> sslConfigs = new HashMap<SSLFactory.Mode, Map<String, Object>>();
         Map<String, X509Certificate> certs = new HashMap<String, X509Certificate>();
         File trustStoreFile = File.createTempFile("truststore", ".jks");
         File clientKeyStoreFile = null;

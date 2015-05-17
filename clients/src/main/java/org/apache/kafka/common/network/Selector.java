@@ -29,8 +29,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.metrics.Measurable;
@@ -43,10 +41,8 @@ import org.apache.kafka.common.metrics.stats.Count;
 import org.apache.kafka.common.metrics.stats.Max;
 import org.apache.kafka.common.metrics.stats.Rate;
 import org.apache.kafka.common.protocol.SecurityProtocol;
-import org.apache.kafka.common.security.auth.PrincipalBuilder;
-import org.apache.kafka.common.security.auth.DefaultPrincipalBuilder;
 import org.apache.kafka.common.utils.Time;
-import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.common.config.SecurityConfigs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -90,13 +86,14 @@ public class Selector implements Selectable {
     private final List<Integer> disconnected;
     private final List<Integer> connected;
     private final List<Integer> failedSends;
+    private final List<SelectionKey> muted;
     private final Time time;
     private final SelectorMetrics sensors;
     private final String metricGrpPrefix;
     private final Map<String, String> metricTags;
     private final SecurityProtocol securityProtocol;
-    private SSLFactory sslFactory = null;
-    private ExecutorService executorService = null;
+    private final ChannelBuilder channelBuilder;
+
 
     /**
      * Create a new selector
@@ -117,14 +114,16 @@ public class Selector implements Selectable {
         this.connected = new ArrayList<Integer>();
         this.disconnected = new ArrayList<Integer>();
         this.failedSends = new ArrayList<Integer>();
+        this.muted = new ArrayList<SelectionKey>();
         this.sensors = new SelectorMetrics(metrics);
-        this.securityProtocol = configs.containsKey(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG) ?
-            SecurityProtocol.valueOf((String) configs.get(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG)) : SecurityProtocol.PLAINTEXT;
+        this.securityProtocol = configs.containsKey(SecurityConfigs.SECURITY_PROTOCOL_CONFIG) ?
+            SecurityProtocol.valueOf((String) configs.get(SecurityConfigs.SECURITY_PROTOCOL_CONFIG)) : SecurityProtocol.PLAINTEXT;
         if (securityProtocol == SecurityProtocol.SSL) {
-            this.executorService = Executors.newScheduledThreadPool(1);
-            this.sslFactory = new SSLFactory(SSLFactory.Mode.CLIENT);
-            this.sslFactory.configure(configs);
+            this.channelBuilder = new SSLChannelBuilder();
+        } else {
+            this.channelBuilder = new PlainTextChannelBuilder();
         }
+        this.channelBuilder.configure(configs);
     }
 
     /**
@@ -162,18 +161,7 @@ public class Selector implements Selectable {
             throw e;
         }
 
-        TransportLayer transportLayer;
-        if (securityProtocol == SecurityProtocol.SSL) {
-            transportLayer = new SSLTransportLayer(socketChannel,
-                                                    sslFactory.createSSLEngine(socket.getInetAddress().getHostName(),
-                                                                               socket.getPort()),
-                                                   executorService);
-        } else {
-            transportLayer = new PlainTextTransportLayer(socketChannel);
-        }
-        PrincipalBuilder principalBuilder = new DefaultPrincipalBuilder();
-        Authenticator authenticator = new DefaultAuthenticator(transportLayer, principalBuilder);
-        Channel channel = new Channel(transportLayer, authenticator);
+        Channel channel = channelBuilder.buildChannel(socketChannel);
         SelectionKey key = socketChannel.register(this.selector, SelectionKey.OP_CONNECT);
         key.attach(new Transmissions(id));
         this.keys.put(id, key);
@@ -208,8 +196,6 @@ public class Selector implements Selectable {
             close(key);
         try {
             this.selector.close();
-            if (this.executorService != null)
-                this.executorService.shutdown();
         } catch (IOException e) {
             log.error("Exception closing selector:", e);
         } catch (SecurityException se) {
@@ -278,17 +264,12 @@ public class Selector implements Selectable {
                         key.interestOps(key.interestOps() & ~SelectionKey.OP_CONNECT | SelectionKey.OP_READ);
                         this.connected.add(transmissions.id);
                         this.sensors.connectionCreated.record();
-
                     }
 
                     /* read from any connections that have readable data */
                     if (key.isReadable()) {
                         if (!channel.isReady()) {
-                            int status = channel.connect(key.isReadable(), key.isWritable());
-                            if (status == 0)
-                                key.interestOps(key.interestOps() & ~SelectionKey.OP_CONNECT | SelectionKey.OP_READ);
-                            else
-                                key.interestOps(status);
+                            channelHandshake(key, channel);
                         } else {
                             if (!transmissions.hasReceive())
                                 transmissions.receive = new NetworkReceive(transmissions.id);
@@ -305,11 +286,7 @@ public class Selector implements Selectable {
                     /* write to any sockets that have space in their buffer and for which we have data */
                     if (key.isWritable()) {
                         if (!channel.isReady()) {
-                            int status = channel.connect(key.isReadable(), key.isWritable());
-                            if (status == 0)
-                                key.interestOps(key.interestOps() & ~SelectionKey.OP_CONNECT | SelectionKey.OP_READ);
-                            else
-                                key.interestOps(status);
+                            channelHandshake(key, channel);
                         } else {
                             transmissions.send.writeTo(channel);
                             if (transmissions.send.remaining() <= 0) {
@@ -351,6 +328,16 @@ public class Selector implements Selectable {
             return socket.getLocalAddress().toString();
     }
 
+    private void channelHandshake(SelectionKey key, Channel channel)  throws IOException {
+        // check if the key is muted
+        if (this.muted.contains(key)) return;
+        int status = channel.connect(key.isReadable(), key.isWritable());
+        if (status == 0)
+            key.interestOps(SelectionKey.OP_WRITE | SelectionKey.OP_READ);
+        else
+            key.interestOps(status);
+    }
+
     @Override
     public List<NetworkSend> completedSends() {
         return this.completedSends;
@@ -378,6 +365,7 @@ public class Selector implements Selectable {
 
     private void mute(SelectionKey key) {
         key.interestOps(key.interestOps() & ~SelectionKey.OP_READ);
+        this.muted.add(key);
     }
 
     @Override
@@ -387,6 +375,7 @@ public class Selector implements Selectable {
 
     private void unmute(SelectionKey key) {
         key.interestOps(key.interestOps() | SelectionKey.OP_READ);
+        this.muted.remove(key);
     }
 
     @Override

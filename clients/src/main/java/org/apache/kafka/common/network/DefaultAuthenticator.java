@@ -25,9 +25,9 @@ import org.apache.kafka.common.KafkaException;
 
 public class DefaultAuthenticator implements Authenticator {
 
-    TransportLayer transportLayer;
-    PrincipalBuilder principalBuilder;
-    Principal principal;
+    private TransportLayer transportLayer;
+    private PrincipalBuilder principalBuilder;
+    private Principal principal;
 
     public DefaultAuthenticator(TransportLayer transportLayer, PrincipalBuilder principalBuilder) {
         this.transportLayer = transportLayer;
@@ -42,7 +42,7 @@ public class DefaultAuthenticator implements Authenticator {
     }
 
     public Principal principal() throws KafkaException {
-        if (principal != null)
+        if (principal == null)
             principal = principalBuilder.buildPrincipal(transportLayer, this);
         return principal;
     }
@@ -52,4 +52,5 @@ public class DefaultAuthenticator implements Authenticator {
     public boolean isComplete() {
         return true;
     }
+
 }

@@ -12,7 +12,7 @@
  */
 package org.apache.kafka.common.network;
 
-import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.common.config.SecurityConfigs;
 import org.apache.kafka.common.protocol.SecurityProtocol;
 
 import java.io.DataInputStream;
@@ -39,8 +39,8 @@ class EchoServer extends Thread {
     private SSLFactory sslFactory;
 
     public EchoServer(Map<String, ?> configs) throws Exception {
-        this.protocol =  configs.containsKey(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG) ?
-            SecurityProtocol.valueOf((String) configs.get(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG)) : SecurityProtocol.PLAINTEXT;
+        this.protocol =  configs.containsKey(SecurityConfigs.SECURITY_PROTOCOL_CONFIG) ?
+            SecurityProtocol.valueOf((String) configs.get(SecurityConfigs.SECURITY_PROTOCOL_CONFIG)) : SecurityProtocol.PLAINTEXT;
         if (protocol == SecurityProtocol.SSL) {
             this.sslFactory = new SSLFactory(SSLFactory.Mode.SERVER);
             this.sslFactory.configure(configs);

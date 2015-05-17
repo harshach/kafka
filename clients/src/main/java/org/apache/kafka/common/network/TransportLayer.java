@@ -27,7 +27,6 @@ import java.nio.channels.SocketChannel;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 
-import javax.net.ssl.SSLSession;
 import java.security.Principal;
 
 
@@ -90,10 +89,4 @@ public interface TransportLayer {
      */
     Principal peerPrincipal() throws IOException;
 
-    /**
-     * returns a SSL Session after the handshake is established
-     * throws IlleagalStateException if the handshake is not established
-     * throws UnsupportedOperationException for non-secure implementation
-     */
-    SSLSession sslSession() throws IllegalStateException, UnsupportedOperationException;
 }

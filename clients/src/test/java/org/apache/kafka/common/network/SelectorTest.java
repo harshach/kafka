@@ -24,6 +24,7 @@ import java.nio.ByteBuffer;
 import java.util.LinkedHashMap;
 
 import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.config.SecurityConfigs;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.test.TestUtils;
@@ -43,7 +44,8 @@ public class SelectorTest {
 
     @Before
     public void setup() throws Exception {
-        Map<String, ?> configs = new HashMap<String, Object>();
+        Map<String, Object> configs = new HashMap<String, Object>();
+        configs.put(SecurityConfigs.PRINCIPAL_BUILDER_CLASS_CONFIG, Class.forName(SecurityConfigs.DEFAULT_PRINCIPAL_BUILDER_CLASS));
         this.server = new EchoServer(configs);
         this.server.start();
         this.selector = new Selector(new Metrics(), new MockTime() , "MetricGroup", new LinkedHashMap<String, String>(), configs);

@@ -42,6 +42,8 @@ public interface Authenticator {
 
     /**
      * Does authentication and returns SelectionKey.OP if further communication needed
+     * @param read true if SocketChannel is readable or false
+     * @param write true if SocketChannel is writable or false
      * If no further authentication needs to be done return 0.
      */
     int authenticate(boolean read, boolean write) throws IOException;

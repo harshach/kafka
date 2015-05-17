@@ -27,7 +27,6 @@ import java.io.DataOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 
-import javax.net.ssl.SSLSession;
 import java.security.Principal;
 
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
@@ -143,10 +142,6 @@ public class PlainTextTransportLayer implements TransportLayer {
 
     public Principal peerPrincipal() throws IOException {
         return new KafkaPrincipal("ANONYMOUS");
-    }
-
-    public SSLSession sslSession() throws IllegalStateException, UnsupportedOperationException {
-        throw new UnsupportedOperationException("sslSession not supported for PlainTextTransportLayer");
     }
 
 }

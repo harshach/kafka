@@ -20,6 +20,7 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.LinkedHashMap;
 
+import org.apache.kafka.common.config.SecurityConfigs;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.test.TestSSLUtils;
@@ -42,15 +43,19 @@ public class SSLSelectorTest {
 
     @Before
     public void setup() throws Exception {
-        Map<SSLFactory.Mode, Map<String, ?>> sslConfigs = TestSSLUtils.createSSLConfigs(false, true);
-        this.server = new EchoServer(sslConfigs.get(SSLFactory.Mode.SERVER));
+        Map<SSLFactory.Mode, Map<String, Object>> sslConfigs = TestSSLUtils.createSSLConfigs(false, true);
+        Map<String, Object> sslServerConfigs = sslConfigs.get(SSLFactory.Mode.SERVER);
+        sslServerConfigs.put(SecurityConfigs.PRINCIPAL_BUILDER_CLASS_CONFIG, Class.forName(SecurityConfigs.DEFAULT_PRINCIPAL_BUILDER_CLASS));
+        this.server = new EchoServer(sslServerConfigs);
         this.server.start();
-        this.selector = new Selector(new Metrics(), new MockTime(), "MetricGroup", new LinkedHashMap<String, String>(), sslConfigs.get(SSLFactory.Mode.CLIENT));
+        Map<String, Object> sslClientConfigs = sslConfigs.get(SSLFactory.Mode.CLIENT);
+        sslClientConfigs.put(SecurityConfigs.PRINCIPAL_BUILDER_CLASS_CONFIG, Class.forName(SecurityConfigs.DEFAULT_PRINCIPAL_BUILDER_CLASS));
+        this.selector = new Selector(new Metrics(), new MockTime(), "MetricGroup", new LinkedHashMap<String, String>(), sslClientConfigs);
     }
 
     @After
     public void teardown() throws Exception {
-        this.selector.close();
+        //this.selector.close();
         this.server.close();
     }
 
@@ -103,10 +108,41 @@ public class SSLSelectorTest {
         sendAndReceive(node, requestPrefix, 0, reqs);
     }
 
+    /**
+     * Test sending an empty string
+     */
+    @Test
+    public void testEmptyRequest() throws Exception {
+        int node = 0;
+        blockingConnect(node);
+        assertEquals("", blockingRequest(node, ""));
+    }
+
+    @Test
+    public void testMute() throws Exception {
+        blockingConnect(0);
+        blockingConnect(1);
+
+        selector.send(createSend(0, "hello"));
+        selector.send(createSend(1, "hi"));
+        selector.mute(1);
+
+        while (selector.completedReceives().isEmpty())
+            selector.poll(5);
+        assertEquals("We should have only one response", 1, selector.completedReceives().size());
+        assertEquals("The response should not be from the muted node", 0, selector.completedReceives().get(0).source());
+        selector.unmute(1);
+        do {
+            selector.poll(5);
+        } while (selector.completedReceives().isEmpty());
+        assertEquals("We should have only one response", 1, selector.completedReceives().size());
+        assertEquals("The response should be from the previously muted node", 1, selector.completedReceives().get(0).source());
+    }
+
+
 
     private String blockingRequest(int node, String s) throws IOException {
         selector.send(createSend(node, s));
-        selector.poll(1000L);
         while (true) {
             selector.poll(1000L);
             for (NetworkReceive receive : selector.completedReceives())
@@ -152,4 +188,6 @@ public class SSLSelectorTest {
             }
         }
     }
+
+
 }
