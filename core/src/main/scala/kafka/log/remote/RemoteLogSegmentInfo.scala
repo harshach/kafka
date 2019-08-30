@@ -16,7 +16,10 @@
  */
 package kafka.log.remote
 
+import org.apache.kafka.common.TopicPartition
+
 trait RemoteLogSegmentInfo {
+  def topicPartition: TopicPartition
   def baseOffset : Long
   def endOffset: Long
 }

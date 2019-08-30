@@ -340,6 +340,7 @@ public class HDFSRemoteStorageManagerTest {
         // remote segments list returned by RSM should be sorted by base offset
         List<RemoteLogSegmentInfo> remoteSegments = rsm.listRemoteSegments(tp);
         for (int i = 0; i < 20; i++) {
+            assertEquals(tp, remoteSegments.get(i).topicPartition());
             if (i % 2 == 0) {
                 assertEquals((i / 2) * 20, remoteSegments.get(i).baseOffset());
                 assertEquals((i / 2) * 20 + 19, remoteSegments.get(i).endOffset());
@@ -409,6 +410,7 @@ public class HDFSRemoteStorageManagerTest {
         assertEquals(numSegments, remoteSegments.size());
         for (int i = numSegments; i < 10; i++) {
             RemoteLogSegmentInfo segment = remoteSegments.get(i - numSegments);
+            assertEquals(tp, segment.topicPartition());
             assertEquals(segmentSize * i, segment.baseOffset());
             assertEquals(segmentSize * (i + 1) - 1, segment.endOffset());
         }

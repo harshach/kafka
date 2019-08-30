@@ -161,7 +161,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                     long baseOffset = Long.parseLong(m.group(1));
                     if (baseOffset >= minBaseOffset) {
                         long endOffset = Long.parseLong(m.group(2));
-                        HDFSRemoteLogSegmentInfo segment = new HDFSRemoteLogSegmentInfo(baseOffset, endOffset, file.getPath());
+                        HDFSRemoteLogSegmentInfo segment =
+                            new HDFSRemoteLogSegmentInfo(topicPartition, baseOffset, endOffset, file.getPath());
                         segments.add(segment);
                     }
                 } catch (NumberFormatException e) {

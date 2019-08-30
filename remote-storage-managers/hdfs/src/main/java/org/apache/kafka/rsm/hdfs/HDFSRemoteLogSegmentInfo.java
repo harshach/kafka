@@ -16,18 +16,27 @@
  */
 package org.apache.kafka.rsm.hdfs;
 
+import org.apache.kafka.common.TopicPartition;
+
 import kafka.log.remote.RemoteLogSegmentInfo;
 import org.apache.hadoop.fs.Path;
 
 public class HDFSRemoteLogSegmentInfo implements RemoteLogSegmentInfo {
+    private TopicPartition topicPartition;
     private long baseOffset;
     private long endOffset;
     private Path path;
 
-    HDFSRemoteLogSegmentInfo(long baseOffset, long endOffset, Path path) {
+    HDFSRemoteLogSegmentInfo(TopicPartition topicPartition, long baseOffset, long endOffset, Path path) {
+        this.topicPartition = topicPartition;
         this.baseOffset = baseOffset;
         this.endOffset = endOffset;
         this.path = path;
+    }
+
+    @Override
+    public TopicPartition topicPartition() {
+        return topicPartition;
     }
 
     @Override
