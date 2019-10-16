@@ -208,7 +208,7 @@ class Log(@volatile var dir: File,
           val topicPartition: TopicPartition,
           val producerStateManager: ProducerStateManager,
           logDirFailureChannel: LogDirFailureChannel,
-          val remoteLogEnabled:Boolean = false) extends Logging with KafkaMetricsGroup {
+          val rlmEnabled:Boolean = false) extends Logging with KafkaMetricsGroup {
 
   import kafka.log.Log._
 
@@ -279,9 +279,9 @@ class Log(@volatile var dir: File,
 
   @volatile private var highestOffsetWithRemoteIndex:Long = logStartOffset
 
-  private def effectiveRemoteLogEnabled() : Boolean = {
+  private def remoteLogEnabled() : Boolean = {
     // remote logging is enabled only for non-compact topics
-    remoteLogEnabled && !config.compact
+    rlmEnabled && !config.compact
   }
 
   locally {
@@ -301,7 +301,7 @@ class Log(@volatile var dir: File,
 
     localLogStartOffset = math.max(logStartOffset, segments.firstEntry.getValue.baseOffset)
 
-    if(!effectiveRemoteLogEnabled) logStartOffset = localLogStartOffset
+    if(!remoteLogEnabled) logStartOffset = localLogStartOffset
 
     // The earliest leader epoch may not be flushed during a hard failure. Recover it here.
     leaderEpochCache.foreach(_.truncateFromStart(logStartOffset))
@@ -317,8 +317,8 @@ class Log(@volatile var dir: File,
   }
 
   def updateLogStartOffsetFromRemoteTier(remoteLso: Long): Unit = {
-    if(effectiveRemoteLogEnabled) logStartOffset = if (remoteLso < 0) localLogStartOffset else remoteLso
-    else warn(s"updateLogStartOffsetFromRemoteTier call is ignored as effectiveRemoteLogEnabled is determined to be false.")
+    if(remoteLogEnabled) logStartOffset = if (remoteLso < 0) localLogStartOffset else remoteLso
+    else warn(s"updateLogStartOffsetFromRemoteTier call is ignored as remoteLogEnabled is determined to be false.")
   }
 
   def highWatermark: Long = highWatermarkMetadata.messageOffset
@@ -345,8 +345,8 @@ class Log(@volatile var dir: File,
   }
 
   def updateRemoteIndexHighestOffset(offset: Long): Unit = {
-    if (!effectiveRemoteLogEnabled)
-      warn(s"Received update for highest offset with remote index as: $offset, the existing value: $highestOffsetWithRemoteIndex and effectiveRemoteLogEnabled: $effectiveRemoteLogEnabled")
+    if (!remoteLogEnabled)
+      warn(s"Received update for highest offset with remote index as: $offset, the existing value: $highestOffsetWithRemoteIndex and remoteLogEnabled: $remoteLogEnabled")
     else if(offset > highestOffsetWithRemoteIndex) highestOffsetWithRemoteIndex = offset
   }
 
@@ -1747,7 +1747,7 @@ class Log(@volatile var dir: File,
 
         // check not to delete segments which do not have remote indexes locally.
         val deleteOnlyWhenRemoteIndexExistsLocally =
-          if(effectiveRemoteLogEnabled) upperBoundOffset > 0 && upperBoundOffset-1 <= highestOffsetWithRemoteIndex else true
+          if(remoteLogEnabled) upperBoundOffset > 0 && upperBoundOffset-1 <= highestOffsetWithRemoteIndex else true
 
         if (deleteOnlyWhenRemoteIndexExistsLocally && highWatermark >= upperBoundOffset
           && predicate(segment, Option(nextSegment)) && !isLastSegmentAndEmpty) {
