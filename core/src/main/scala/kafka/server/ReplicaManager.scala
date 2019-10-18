@@ -974,7 +974,7 @@ class ReplicaManager(val config: KafkaConfig,
                   result
               }
               tp -> FetchPartitionData(r.error, r.highWatermark, r.leaderLogStartOffset, r.info.records,
-                r.lastStableOffset, r.nextLocalOffset, r.info.abortedTransactions, r.preferredReadReplica)
+                r.lastStableOffset, r.nextLocalOffset, r.info.abortedTransactions, r.preferredReadReplica, false)
             }
             responseCallback(fetchPartitionData)
             return

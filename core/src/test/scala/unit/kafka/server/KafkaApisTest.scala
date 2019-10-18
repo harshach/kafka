@@ -803,7 +803,7 @@ class KafkaApisTest {
     expectLastCall[Unit].andAnswer(new IAnswer[Unit] {
       def answer: Unit = {
         val callback = getCurrentArguments.apply(7).asInstanceOf[Seq[(TopicPartition, FetchPartitionData)] => Unit]
-        callback(Seq(tp0 -> FetchPartitionData(Errors.NONE, hw, 0, records, None, None, Option.empty, isReassignmentFetch = isReassigning)))
+        callback(Seq(tp0 -> FetchPartitionData(Errors.NONE, hw, 0, records, None, None, None, Option.empty, isReassignmentFetch = isReassigning)))
       }
     })
 
