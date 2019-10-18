@@ -30,6 +30,8 @@ import kafka.controller.{KafkaController, StateChangeLogger}
 import kafka.log._
 import kafka.log.remote.{RemoteLogManager, RemoteLogReadResult}
 import kafka.metrics.KafkaMetricsGroup
+import kafka.server.{FetchMetadata => SFetchMetadata}
+import kafka.server.HostedPartition.Online
 import kafka.server.QuotaFactory.QuotaManagers
 import kafka.server.checkpoints.{LazyOffsetCheckpoints, OffsetCheckpointFile, OffsetCheckpoints}
 import kafka.utils._
@@ -52,7 +54,7 @@ import org.apache.kafka.common.requests.EpochEndOffset._
 import org.apache.kafka.common.requests.FetchRequest.PartitionData
 import org.apache.kafka.common.requests.FetchResponse.AbortedTransaction
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
-import org.apache.kafka.common.requests.{ApiError, DeleteRecordsResponse, DescribeLogDirsResponse, EpochEndOffset, IsolationLevel, LeaderAndIsrRequest, LeaderAndIsrResponse, OffsetsForLeaderEpochRequest, StopReplicaRequest, UpdateMetadataRequest}
+import org.apache.kafka.common.requests._
 import org.apache.kafka.common.utils.Time
 import org.apache.kafka.common.{ElectionType, Node, TopicPartition}
 
@@ -121,7 +123,8 @@ case class FetchPartitionData(error: Errors = Errors.NONE,
                               lastStableOffset: Option[Long],
                               nextLocalOffset: Option[Long] = None,
                               abortedTransactions: Option[List[AbortedTransaction]],
-                              preferredReadReplica: Option[Int])
+                              preferredReadReplica: Option[Int],
+                              isReassignmentFetch: Boolean)
 
 /**
  * Trait to represent the state of hosted partitions. We create a concrete (active) Partition
@@ -273,6 +276,14 @@ class ReplicaManager(val config: KafkaConfig,
       def value = leaderPartitionsIterator.count(_.isAtMinIsr)
     }
   )
+  val reassigningPartitions = newGauge(
+    "ReassigningPartitions",
+    new Gauge[Int] {
+      def value = reassigningPartitionsCount
+    }
+  )
+
+  def reassigningPartitionsCount: Int = leaderPartitionsIterator.count(_.isReassigning)
 
   val isrExpandRate: Meter = newMeter("IsrExpandsPerSec", "expands", TimeUnit.SECONDS)
   val isrShrinkRate: Meter = newMeter("IsrShrinksPerSec", "shrinks", TimeUnit.SECONDS)
@@ -415,6 +426,13 @@ class ReplicaManager(val config: KafkaConfig,
 
   def getPartition(topicPartition: TopicPartition): HostedPartition = {
     Option(allPartitions.get(topicPartition)).getOrElse(HostedPartition.None)
+  }
+
+  def isAddingReplica(topicPartition: TopicPartition, replicaId: Int): Boolean = {
+    getPartition(topicPartition) match {
+      case Online(partition) => partition.isAddingReplica(replicaId)
+      case _ => false
+    }
   }
 
   // Visible for testing
@@ -919,7 +937,7 @@ class ReplicaManager(val config: KafkaConfig,
     if (timeout <= 0 || fetchInfos.isEmpty || bytesReadable >= fetchMinBytes || errorReadingData || anyPartitionsNeedHwUpdate) {
       val fetchPartitionData = logReadResults.map { case (tp, result) =>
         tp -> FetchPartitionData(result.error, result.highWatermark, result.leaderLogStartOffset, result.info.records,
-          result.lastStableOffset, result.nextLocalOffset, result.info.abortedTransactions, result.preferredReadReplica)
+          result.lastStableOffset, result.nextLocalOffset, result.info.abortedTransactions, result.preferredReadReplica, isFromFollower && isAddingReplica(tp, replicaId))
       }
       maybeUpdateHwAndSendResponse(fetchPartitionData)
     } else {
@@ -931,7 +949,7 @@ class ReplicaManager(val config: KafkaConfig,
           fetchPartitionStatus += (topicPartition -> FetchPartitionStatus(logOffsetMetadata, partitionData))
         })
       }
-      val fetchMetadata = FetchMetadata(fetchMinBytes, fetchMaxBytes, hardMaxBytesLimit, fetchOnlyFromLeader,
+      val fetchMetadata: SFetchMetadata = SFetchMetadata(fetchMinBytes, fetchMaxBytes, hardMaxBytesLimit, isFromFollower,
         fetchIsolation, isFromFollower, replicaId, fetchPartitionStatus)
 
       if (remoteFetchInfo.isDefined) {
@@ -1684,7 +1702,7 @@ class ReplicaManager(val config: KafkaConfig,
             } else {
               warn(s"Leader $localBrokerId failed to record follower $followerId's position " +
                 s"${readResult.info.fetchOffsetMetadata.messageOffset} since the replica is not recognized to be " +
-                s"one of the assigned replicas ${partition.allReplicaIds.mkString(",")} " +
+                s"one of the assigned replicas ${partition.assignmentState.replicas.mkString(",")} " +
                 s"for partition $topicPartition. Empty records will be returned for this partition.")
               readResult.withEmptyFetchInfo
             }
