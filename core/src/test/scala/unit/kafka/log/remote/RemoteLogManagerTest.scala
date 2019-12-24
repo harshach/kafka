@@ -210,9 +210,6 @@ class MockRemoteStorageManager extends RemoteStorageManager {
   override def read(remoteLogIndexEntry: RemoteLogIndexEntry, maxBytes: Int, startOffset: Long,
                     minOneMessage: Boolean): Records = MemoryRecords.EMPTY
 
-  override def findOffsetByTimestamp(remoteLogIndexEntry: RemoteLogIndexEntry,
-                                     targetTimestamp: Long, startingOffset: Long): FileRecords.TimestampAndOffset = null
-
   override def close(): Unit = {}
 
   override def configure(configs: util.Map[String, _]): Unit = {

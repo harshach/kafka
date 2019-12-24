@@ -21,7 +21,6 @@ import java.util
 
 import kafka.log.LogSegment
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.apache.kafka.common.record.Records
 
 /**
@@ -82,13 +81,6 @@ class RemoteStorageManagerWrapper(val rsm: RemoteStorageManager, val rsmClassLoa
   @throws(classOf[IOException])
   override def read(remoteLogIndexEntry: RemoteLogIndexEntry, maxBytes: Int, startOffset: Long, minOneMessage: Boolean): Records = {
     withClassLoader { rsm.read(remoteLogIndexEntry, maxBytes, startOffset, minOneMessage) }
-  }
-
-  @throws(classOf[IOException])
-  override def findOffsetByTimestamp(remoteLogIndexEntry: RemoteLogIndexEntry,
-                                     targetTimestamp: Long,
-                                     startingOffset: Long): TimestampAndOffset = {
-    withClassLoader { rsm.findOffsetByTimestamp(remoteLogIndexEntry, targetTimestamp, startingOffset) }
   }
 
   override def close(): Unit = {
