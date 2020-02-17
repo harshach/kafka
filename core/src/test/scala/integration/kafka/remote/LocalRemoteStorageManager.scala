@@ -1,3 +1,19 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package integration.kafka.remote
 
 import java.io.{File, InputStream}
@@ -7,15 +23,37 @@ import java.nio.file.Files
 import java.{lang, util}
 import java.util.Optional
 
-import integration.kafka.remote.LocalRemoteStorageManager.{checkArgument, copy, deleteFilesOnly, deleteQuietly,
-  directory, emptyContext, offsetSuffix, segmentSuffix, timestampSuffix}
+import integration.kafka.remote.LocalRemoteStorageManager.{checkArgument, deleteFilesOnly, deleteQuietly, directory, emptyContext, offsetSuffix, segmentSuffix, timestampSuffix, transfer, defaultTransferer}
 import kafka.utils.Logging
 import org.apache.kafka.common.log.remote.storage._
 
 import scala.compat.java8.OptionConverters._
 
+/**
+  * An implementation of [[RemoteStorageManager]] which relies on the local file system to store offloaded log
+  * segments and associated data.
+  *
+  * Due to the consistency semantic of POSIX-compliant file systems, this remote storage provides strong
+  * read-after-write consistency and a segment's data can be accessed once the copy to the storage succeeded.
+  *
+  * In order to guarantee isolation, independence, reproducibility and consistency of unit and integration
+  * tests, the scope of a storage implemented by this class, and identified via the storage ID provided to the
+  * constructor, should be limited to a test or well-defined self-contained use-case.
+  *
+  * @param storageId The ID assigned to this storage and used for reference. Using descriptive, unique ID is
+  *                  recommended to ensure a storage can be unambiguously associated to the test which created it.
+  *
+  * @param deleteOnClose Delete all files and directories from this storage on close, substantially removing it
+  *                      entirely from the file system.
+  *
+  * @param transferer The implementation of the transfer of the data of the canonical segment and index files to
+  *                   this storage.
+  *                   @todo use this to test failure mode in copyLogSegment.
+  */
 final class LocalRemoteStorageManager(val storageId: String,
-                                      val deleteOnClose: Boolean = false) extends RemoteStorageManager with Logging {
+                                      val deleteOnClose: Boolean = false,
+                                      val transferer: (File, File) => Unit = defaultTransferer)
+  extends RemoteStorageManager with Logging {
 
   val storageDirectory = {
     val (dir, existed) = directory(s"remote-storage/$storageId")
@@ -36,6 +74,12 @@ final class LocalRemoteStorageManager(val storageId: String,
 
       } catch {
         case e: Exception =>
+          //
+          // Keep the storage in a consistent state, i.e. a segment stored should always have with its
+          // associated offset and time indexes stored as well. Here, delete any file which was copied
+          // before the exception was hit. The exception is re-thrown as no remediation is expected in
+          // the current scope.
+          //
           remote.deleteAll()
           throw e
       }
@@ -58,6 +102,10 @@ final class LocalRemoteStorageManager(val storageId: String,
       val remote = new RemoteLogSegmentFiles(metadata.remoteLogSegmentId(), shouldExist = true)
       val inputStream = newInputStream(remote.logSegment.toPath, READ)
       inputStream.skip(startPosition)
+
+      // endPosition is ignored at this stage. A wrapper around the file input stream can implement
+      // the upper bound on the stream.
+
       inputStream
     }
   }
@@ -95,9 +143,18 @@ final class LocalRemoteStorageManager(val storageId: String,
               logger.warn(
                 s"Found file $topicPartitionDirectory which is not a remote topic-partition directory. " +
                 s"Stopping the deletion process.")
+              //
+              // If an unexpected state is encountered, do not proceed with the delete of the local storage,
+              // keeping it for post-mortem analysis. Do not throw either, in an attempt to keep the close()
+              // method quiet.
+              //
               return
             }
 
+            //
+            // The topic-partition directory is deleted only if all files inside it have been deleted successfully
+            // thanks to the short-circuit operand. Yes, this is bad to rely on that to drive the execution flow.
+            //
             deleteFilesOnly(topicPartitionDirectory.listFiles()) && deleteQuietly(topicPartitionDirectory)
 
           }.exists(!_)
@@ -128,12 +185,12 @@ final class LocalRemoteStorageManager(val storageId: String,
       directory(s"${tp.topic()}-${tp.partition()}", storageDirectory)._1
     }
 
-    val logSegment = remoteFile(id, segmentSuffix, shouldExist)
-    val offsetIndex = remoteFile(id, offsetSuffix, shouldExist)
-    val timeIndex = remoteFile(id, timestampSuffix, shouldExist)
+    var logSegment = remoteFile(id, segmentSuffix, shouldExist)
+    var offsetIndex = remoteFile(id, offsetSuffix, shouldExist)
+    var timeIndex = remoteFile(id, timestampSuffix, shouldExist)
 
     def copyAll(data: LogSegmentData): Unit = {
-      copy {
+      transfer(transferer) {
         Seq((data.logSegment(), logSegment), (data.offsetIndex(), offsetIndex), (data.timeIndex(), timeIndex))
       }
     }
@@ -173,11 +230,13 @@ object LocalRemoteStorageManager extends Logging {
     (directory, existed)
   }
 
-  private def copy(sourceToDest: Seq[(File, File)]) = {
+  private def defaultTransferer(from: File, to: File): Unit = Files.copy(from.toPath, to.toPath)
+
+  private def transfer(transferer: (File, File) => Unit)(sourceToDest: Seq[(File, File)]) = {
     sourceToDest.foreach(x => {
       val (from, to) = (x._1.getAbsolutePath, x._2.getAbsolutePath)
       try {
-        Files.copy(x._1.toPath, x._2.toPath)
+        transferer.apply(x._1, x._2)
         logger.trace(s"Copied $from to remote storage $to")
 
       } catch {
