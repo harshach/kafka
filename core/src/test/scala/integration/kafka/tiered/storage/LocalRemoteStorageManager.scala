@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package integration.kafka.remote
+package integration.kafka.tiered.storage
 
 import java.io.{File, InputStream}
 import java.nio.file.Files.newInputStream
@@ -23,7 +23,7 @@ import java.nio.file.Files
 import java.{lang, util}
 import java.util.Optional
 
-import integration.kafka.remote.LocalRemoteStorageManager.{checkArgument, deleteFilesOnly, deleteQuietly, directory, emptyContext, offsetSuffix, segmentSuffix, timestampSuffix, transfer, defaultTransferer}
+import LocalRemoteStorageManager.{checkArgument, deleteFilesOnly, deleteQuietly, directory, emptyContext, offsetSuffix, segmentSuffix, timestampSuffix, transfer, defaultTransferer}
 import kafka.utils.Logging
 import org.apache.kafka.common.log.remote.storage._
 

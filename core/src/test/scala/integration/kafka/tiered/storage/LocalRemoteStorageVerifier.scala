@@ -14,14 +14,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package integration.kafka.remote
+package integration.kafka.tiered.storage
 
 import java.io.InputStream
 import java.nio.file.{Files, Paths}
 import java.util.Optional.empty
 import java.util.UUID
 
-import integration.kafka.remote.LocalRemoteStorageVerifier.{assertFileDataEquals, assertFileDoesNotExist, assertFileExists}
+import LocalRemoteStorageVerifier.{assertFileDataEquals, assertFileDoesNotExist, assertFileExists}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.log.remote.storage.{LogSegmentData, RemoteLogSegmentId, RemoteLogSegmentMetadata}
 import org.junit.Assert.assertArrayEquals

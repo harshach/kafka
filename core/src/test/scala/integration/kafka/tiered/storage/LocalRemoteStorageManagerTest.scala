@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package integration.kafka.remote
+package integration.kafka.tiered.storage
 
 import java.io.File
 import java.nio.file.Files
@@ -23,7 +23,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Optional.{empty, of}
 import java.util.UUID
 
-import integration.kafka.remote.LocalLogSegments.{offsetFileContent, timeFileContent}
+import LocalLogSegments.{offsetFileContent, timeFileContent}
 import kafka.log.Log
 import kafka.utils.CoreUtils
 import org.apache.kafka.common.TopicPartition
