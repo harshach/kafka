@@ -23,7 +23,7 @@ import java.nio.file.Files
 import java.{lang, util}
 import java.util.Optional
 
-import LocalRemoteStorageManager.{checkArgument, deleteFilesOnly, deleteQuietly, directory, emptyContext, offsetSuffix, segmentSuffix, timestampSuffix, transfer, defaultTransferer}
+import LocalRemoteStorageManager.{DeleteOnCloseProp, StorageIdProp, TransfererProp, checkArgument, defaultTransferer, deleteFilesOnly, deleteQuietly, directory, emptyContext, offsetSuffix, segmentSuffix, timestampSuffix, transfer}
 import kafka.utils.Logging
 import org.apache.kafka.common.log.remote.storage._
 
@@ -39,32 +39,55 @@ import scala.compat.java8.OptionConverters._
   * In order to guarantee isolation, independence, reproducibility and consistency of unit and integration
   * tests, the scope of a storage implemented by this class, and identified via the storage ID provided to the
   * constructor, should be limited to a test or well-defined self-contained use-case.
-  *
-  * @param storageId The ID assigned to this storage and used for reference. Using descriptive, unique ID is
-  *                  recommended to ensure a storage can be unambiguously associated to the test which created it.
-  *
-  * @param deleteOnClose Delete all files and directories from this storage on close, substantially removing it
-  *                      entirely from the file system.
-  *
-  * @param transferer The implementation of the transfer of the data of the canonical segment and index files to
-  *                   this storage.
-  *                   @todo use this to test failure mode in copyLogSegment.
   */
-final class LocalRemoteStorageManager(val storageId: String,
-                                      val deleteOnClose: Boolean = false,
-                                      val transferer: (File, File) => Unit = defaultTransferer)
-  extends RemoteStorageManager with Logging {
+final class LocalRemoteStorageManager extends RemoteStorageManager with Logging {
+  /**
+    * The ID assigned to this storage and used for reference. Using descriptive, unique ID is
+    * recommended to ensure a storage can be unambiguously associated to the test which created it.
+    */
+  @volatile private var storageDirectory: File = _
 
-  val storageDirectory = {
-    val (dir, existed) = directory(s"remote-storage/$storageId")
-    if (existed) {
-      logger.warn(s"Remote storage with ID $storageId already exists on the file system. Any data already in the " +
-        s"remote storage will not be deleted and may result in an inconsistent state and/or provide stale data.")
+  /**
+    * Delete all files and directories from this storage on close, substantially removing it
+    * entirely from the file system.
+    */
+  @volatile private var deleteOnClose: Boolean = false
+
+  /**
+    * The implementation of the transfer of the data of the canonical segment and index files to
+    * this storage.
+    */
+  @volatile private var transferer: (File, File) => Unit = defaultTransferer
+
+  /**
+    * Allows this instance of [[LocalRemoteStorageManager]] to be configured. Calling this method is
+    * mandatory before using the instance. It can only be called once.
+    */
+  override def configure(configs: util.Map[String, _]): Unit = {
+    Option(storageDirectory).foreach { _ =>
+      throw new RemoteStorageException("This instance of local remote storage was already configured." +
+        s"The existing storage directory is ${storageDirectory.getAbsolutePath}. Ensure the method " +
+        "configure(configs: util.Map[String, _]) is only called once.")
     }
-    dir
-  }
 
-  logger.info(s"Created local remote storage: $storageId.")
+    val storageId = Option(configs.get(StorageIdProp)).getOrElse {
+      throw new RemoteStorageException(s"No storage id provided: $StorageIdProp")
+    }
+
+    Option(configs.get(DeleteOnCloseProp)).map(_.toString.toBoolean).foreach(deleteOnClose = _)
+    Option(configs.get(TransfererProp)).map(_.asInstanceOf[(File, File) => Unit]).foreach(transferer = _)
+
+    storageDirectory = {
+      val (dir, existed) = directory(s"remote-storage/$storageId")
+      if (existed) {
+        logger.warn(s"Remote storage with ID $storageId already exists on the file system. Any data already in the " +
+        s"remote storage will not be deleted and may result in an inconsistent state and/or provide stale data.")
+      }
+      dir
+    }
+
+    logger.info(s"Created local remote storage: $storageId.")
+  }
 
   override def copyLogSegment(id: RemoteLogSegmentId, data: LogSegmentData): RemoteLogSegmentContext = {
     wrap { () =>
@@ -131,8 +154,6 @@ final class LocalRemoteStorageManager(val storageId: String,
     }
   }
 
-  override def configure(configs: util.Map[String, _]): Unit = {}
-
   override def close(): Unit = {
     wrap { () =>
       if (deleteOnClose) {
@@ -163,6 +184,11 @@ final class LocalRemoteStorageManager(val storageId: String,
             deleteQuietly(storageDirectory)
           }
 
+          val root = new File("remote-storage")
+          if (root.exists() && root.isDirectory() && root.list().isEmpty) {
+            root.delete()
+          }
+
         } catch {
           case e: Exception =>
             logger.error("Error while deleting remote storage. Stopping the deletion process.", e)
@@ -171,7 +197,17 @@ final class LocalRemoteStorageManager(val storageId: String,
     }
   }
 
+  /**
+    * Provides the root path of this local remote storage. This never changes once the local remote storage
+    * has been configured.
+    */
+  private[storage] def getStorageDirectoryRoot: String = wrap { () => storageDirectory.toPath.toAbsolutePath.toString }
+
   private def wrap[U](f: () => U): U = {
+    if (!Option(storageDirectory).isDefined) {
+      throw new RemoteStorageException("No storage directory was defined for the local remote storage. Make sure " +
+        "the instance was configured correctly via the configure(configs: util.Map[String, _]) method.")
+    }
     try { f() }
     catch {
       case rse: RemoteStorageException => throw rse
@@ -211,6 +247,10 @@ final class LocalRemoteStorageManager(val storageId: String,
 }
 
 object LocalRemoteStorageManager extends Logging {
+  val StorageIdProp = "local.remote.storage.id"
+  val DeleteOnCloseProp = "local.remote.storage.delete.on.close"
+  val TransfererProp = "local.remote.storage.transferer"
+
   private val segmentSuffix = "segment"
   private val offsetSuffix = "offset"
   private val timestampSuffix = "timestamp"

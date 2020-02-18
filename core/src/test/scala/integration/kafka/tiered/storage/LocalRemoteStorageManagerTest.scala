@@ -24,6 +24,7 @@ import java.util.Optional.{empty, of}
 import java.util.UUID
 
 import LocalLogSegments.{offsetFileContent, timeFileContent}
+import integration.kafka.tiered.storage.LocalRemoteStorageManager.{DeleteOnCloseProp, StorageIdProp}
 import kafka.log.Log
 import kafka.utils.CoreUtils
 import org.apache.kafka.common.TopicPartition
@@ -31,10 +32,11 @@ import org.apache.kafka.common.log.remote.storage.{LogSegmentData, RemoteLogSegm
 import org.junit.rules.TestName
 import org.junit.{After, Before, Rule, Test}
 import org.scalatest.Assertions.assertThrows
-import org.scalatestplus.mockito.MockitoSugar
 
 import scala.Array.emptyByteArray
 import scala.annotation.meta.getter
+
+import scala.collection.JavaConverters._
 
 class LocalRemoteStorageManagerTest {
   @(Rule @getter)
@@ -54,14 +56,17 @@ class LocalRemoteStorageManagerTest {
 
   @Before
   def before(): Unit = {
-    remoteStorage = new LocalRemoteStorageManager(generateStorageId(), deleteOnClose = false)
+    remoteStorage = new LocalRemoteStorageManager()
     remoteStorageVerifier = new LocalRemoteStorageVerifier(remoteStorage, Some(topicPartition))
+
+    val config = Map[String, Any](StorageIdProp -> generateStorageId(), DeleteOnCloseProp -> true)
+    remoteStorage.configure(config.asJava)
   }
 
   @After
   def after(): Unit = {
     Option(remoteStorage).foreach(_.close())
-  //  localLogSegments.deleteAll()
+    localLogSegments.deleteAll()
   }
 
   @Test
@@ -177,7 +182,7 @@ class LocalLogSegments {
   }
 
   def deleteAll(): Unit = {
-    CoreUtils.delete(segmentDir.list().toSeq)
+    CoreUtils.delete(segmentDir.listFiles().toSeq.map(_.toString))
     segmentDir.delete()
   }
 }

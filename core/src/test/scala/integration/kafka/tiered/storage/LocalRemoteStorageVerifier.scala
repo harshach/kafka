@@ -32,8 +32,6 @@ import scala.io.Source
 class LocalRemoteStorageVerifier(val remoteStorage: LocalRemoteStorageManager,
                                  val defaultTopicPartition: Option[TopicPartition] = None) {
 
-  val basePath = remoteStorage.storageDirectory.toPath.toAbsolutePath.toString
-
   private def getDefaultTopicPartition(): TopicPartition = {
     defaultTopicPartition.getOrElse {
       throw new IllegalArgumentException("No topic-partition was provided")
@@ -44,14 +42,14 @@ class LocalRemoteStorageVerifier(val remoteStorage: LocalRemoteStorageManager,
                             data: LogSegmentData,
                             topicPartition: TopicPartition = getDefaultTopicPartition()): Seq[String] = {
 
-    val basePath = remoteStorage.storageDirectory.toPath.toAbsolutePath.toString
+    val rootPath = remoteStorage.getStorageDirectoryRoot
     val topicPartitionSubpath = s"${topicPartition.topic()}-${topicPartition.partition()}"
     val uuid = id.id().toString
 
     Seq(
-      Paths.get(basePath, topicPartitionSubpath, s"$uuid-segment").toString,
-      Paths.get(basePath, topicPartitionSubpath, s"$uuid-offset").toString,
-      Paths.get(basePath, topicPartitionSubpath, s"$uuid-timestamp").toString
+      Paths.get(rootPath, topicPartitionSubpath, s"$uuid-segment").toString,
+      Paths.get(rootPath, topicPartitionSubpath, s"$uuid-offset").toString,
+      Paths.get(rootPath, topicPartitionSubpath, s"$uuid-timestamp").toString
     )
   }
 
