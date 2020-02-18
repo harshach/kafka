@@ -24,6 +24,7 @@ import java.{lang, util}
 import java.util.Optional
 
 import LocalRemoteStorageManager.{DeleteOnCloseProp, StorageIdProp, TransfererProp, checkArgument, defaultTransferer, deleteFilesOnly, deleteQuietly, directory, emptyContext, offsetSuffix, segmentSuffix, timestampSuffix, transfer}
+import kafka.log.remote.RemoteLogManager.REMOTE_STORAGE_MANAGER_CONFIG_PREFIX
 import kafka.utils.Logging
 import org.apache.kafka.common.log.remote.storage._
 
@@ -247,9 +248,9 @@ final class LocalRemoteStorageManager extends RemoteStorageManager with Logging 
 }
 
 object LocalRemoteStorageManager extends Logging {
-  val StorageIdProp = "local.remote.storage.id"
-  val DeleteOnCloseProp = "local.remote.storage.delete.on.close"
-  val TransfererProp = "local.remote.storage.transferer"
+  val StorageIdProp = s"${REMOTE_STORAGE_MANAGER_CONFIG_PREFIX}.local.id"
+  val DeleteOnCloseProp = s"${REMOTE_STORAGE_MANAGER_CONFIG_PREFIX}.local.delete.on.close"
+  val TransfererProp = s"${REMOTE_STORAGE_MANAGER_CONFIG_PREFIX}.local.transferer"
 
   private val segmentSuffix = "segment"
   private val offsetSuffix = "offset"
