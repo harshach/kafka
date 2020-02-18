@@ -18,4 +18,6 @@ package org.apache.kafka.common.log.remote.storage;
 
 public interface RemoteLogSegmentContext {
     byte[] asBytes();
+
+    RemoteLogSegmentContext EMPTY_CONTEXT = () -> new byte[0];
 }
