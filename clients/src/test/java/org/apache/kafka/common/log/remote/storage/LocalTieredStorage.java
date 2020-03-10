@@ -216,8 +216,6 @@ public final class LocalTieredStorage implements RemoteStorageManager {
 
                 remote.copyAll(data);
 
-                storageListener.onSegmentCreated(id, remote.logSegment);
-
             } catch (final Exception e) {
                 //
                 // Keep the storage in a consistent state, i.e. a segment stored should always have with its
