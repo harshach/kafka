@@ -112,6 +112,7 @@ public final class LocalRemoteStorageManager implements RemoteStorageManager {
         if (transfererClass != null) {
             try {
                 transferer = (Transferer) getClass().getClassLoader().loadClass(transfererClass).newInstance();
+
             } catch (InstantiationException | IllegalAccessException | ClassNotFoundException | ClassCastException e) {
                 throw new RuntimeException(format("Cannot create transferer from class '%s'", transfererClass), e);
             }
@@ -144,6 +145,7 @@ public final class LocalRemoteStorageManager implements RemoteStorageManager {
                         data.logSegment().getName().split("\\.")[0]));
 
                 remote.copyAll(data);
+
             } catch (final Exception e) {
                 //
                 // Keep the storage in a consistent state, i.e. a segment stored should always have with its
