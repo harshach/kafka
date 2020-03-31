@@ -18,6 +18,7 @@ package org.apache.kafka.common.log.remote.storage;
 
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.InvalidConfigurationException;
+import org.apache.kafka.common.record.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,11 +32,8 @@ import static java.util.Objects.requireNonNull;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.nio.file.*;
+import java.util.*;
 import java.util.concurrent.Callable;
 
 /**
@@ -83,6 +81,30 @@ public final class LocalRemoteStorageManager implements RemoteStorageManager {
      * this storage.
      */
     private volatile Transferer transferer = (from, to) -> Files.copy(from.toPath(), to.toPath());
+
+    public void traverse(final LocalRemoteStorageTraverser traverser) {
+        Objects.requireNonNull(traverser);
+
+        final File[] topicPartitionDirectories = storageDirectory.listFiles();
+
+        Arrays.stream(topicPartitionDirectories)
+                .filter(File::isDirectory)
+                .map(File::listFiles)
+                .flatMap(Arrays::stream)
+                .filter(f -> f.getName().endsWith(RemoteLogSegmentFiles.SEGMENT_SUFFIX))
+                .sorted((f, g) -> f.lastModified() <= g.lastModified() ? -1 : 1)
+                .forEach(file -> {
+                    try {
+                        final RemoteLogSegmentId id = extractRemoteLogSegmentId(file);
+                        final Records records = FileRecords.open(file);
+                        for (Record record : records.records()) {
+                            traverser.visitRecord(id, record);
+                        }
+                    } catch (IOException | RemoteStorageException e) {
+                        throw new RuntimeException(format("Error reading records for %s", file.getName()), e);
+                    }
+                });
+    }
 
     @Override
     public void configure(Map<String, ?> configs) {
@@ -374,5 +396,51 @@ public final class LocalRemoteStorageManager implements RemoteStorageManager {
         if (!valid) {
             throw new IllegalArgumentException(message + ": " + Arrays.toString(args));
         }
+    }
+
+    private static RemoteLogSegmentId extractRemoteLogSegmentId(final File file) throws RemoteStorageException {
+        final String[] subpaths = file.getAbsolutePath().split(File.separator);
+        if (subpaths.length < 2) {
+            throw new RemoteStorageException(format(
+                    "Invalid path for file %s, expected at least 2 containing directories", file.getAbsolutePath()));
+        }
+
+        final String innerDirectory = subpaths[subpaths.length - 2];
+
+        final char topicParitionSeparator = '-';
+        final int separatorIndex = innerDirectory.lastIndexOf(topicParitionSeparator);
+
+        if (separatorIndex == -1) {
+            throw new RemoteStorageException(format(
+                    "Invalid format for topic-partition directory: %s", innerDirectory));
+        }
+
+        final String topic = innerDirectory.substring(0, separatorIndex);
+        final int partition;
+
+        try {
+            partition = Integer.parseInt(innerDirectory.substring(separatorIndex + 1));
+
+        } catch (NumberFormatException ex) {
+            throw new RemoteStorageException(format(
+                    "Invalid format for topic-partition directory: %s", innerDirectory), ex);
+        }
+
+        final String filename = subpaths[subpaths.length - 1];
+        if (!filename.endsWith("-" + RemoteLogSegmentFiles.SEGMENT_SUFFIX)) {
+            throw new RemoteStorageException(format(
+                    "Invalid format for remote segment file: %s", filename));
+        }
+
+        final UUID uuid;
+        try {
+            uuid = UUID.fromString(filename.substring(0, filename.length() - 1 - RemoteLogSegmentFiles.SEGMENT_SUFFIX.length()));
+
+        } catch (RuntimeException ex) {
+            throw new RemoteStorageException(format(
+                    "Invalid format for remote segment file: %s", filename), ex);
+        }
+
+        return new RemoteLogSegmentId(new TopicPartition(topic, partition), uuid);
     }
 }

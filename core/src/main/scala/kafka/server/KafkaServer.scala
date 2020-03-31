@@ -44,6 +44,7 @@ import org.apache.kafka.common.metrics.{JmxReporter, Metrics, _}
 import org.apache.kafka.common.network._
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.{ControlledShutdownRequest, ControlledShutdownResponse}
+import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.security.scram.internals.ScramMechanism
 import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache
 import org.apache.kafka.common.security.{JaasContext, JaasUtils}
@@ -354,7 +355,13 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         AppInfoParser.registerAppInfo(jmxPrefix, config.brokerId.toString, metrics, time.milliseconds())
 
         // todo-tier start RLMM by saying broker is ready
-        remoteLogManager.foreach(rlm => rlm.onServerStarted())
+        remoteLogManager.foreach ( rlm => {
+          val listener = remoteLogManagerConfig.listenerName.map(ListenerName.normalised)
+            .getOrElse(ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT))
+          val serverEndpoint = brokerInfo.broker.endPoint(listener)
+          rlm.onServerStarted(serverEndpoint.connectionString)
+        })
+
         info("started")
       }
     }

@@ -17,18 +17,19 @@
 package org.apache.kafka.common.log.remote.storage;
 
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.record.*;
+import org.apache.kafka.common.utils.*;
+import org.junit.*;
 
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
-import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.*;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
+import java.nio.*;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 
 public final class LocalRemoteStorageVerifier {
     private final LocalRemoteStorageManager remoteStorage;
@@ -79,11 +80,10 @@ public final class LocalRemoteStorageVerifier {
      *
      * @param id The unique ID of the remote log segment and associated resources (e.g. offset and time indexes).
      * @param seg The segment stored on Kafka's local storage.
-     * @param data The expected content of the remote log segment.
      */
-    public void verifyLogSegmentDataEquals(final RemoteLogSegmentId id, final LogSegmentData seg, final byte[] data) {
+    public void verifyRemoteLogSegmentMatchesLocal(final RemoteLogSegmentId id, final LogSegmentData seg) {
         final String remoteSegmentPath = expectedPaths(id, seg).get(0);
-        assertFileDataEquals(remoteSegmentPath, data);
+        assertFileDataEquals(remoteSegmentPath, seg.logSegment().getAbsolutePath());
     }
 
     /**
@@ -96,7 +96,11 @@ public final class LocalRemoteStorageVerifier {
     public void verifyFetchedLogSegment(final RemoteLogSegmentId id, final long startPosition, final byte[] expected) {
         try {
             final InputStream in = remoteStorage.fetchLogSegmentData(newMetadata(id), startPosition, null);
-            assertArrayEquals(expected, readFully(in));
+            final ByteBuffer buffer = ByteBuffer.wrap(readFully(in));
+            Iterator<Record> records = MemoryRecords.readableRecords(buffer).records().iterator();
+
+            assertTrue(records.hasNext());
+            assertEquals(ByteBuffer.wrap(expected), records.next().value());
 
         } catch (RemoteStorageException | IOException e) {
             throw new AssertionError(e);
@@ -160,10 +164,10 @@ public final class LocalRemoteStorageVerifier {
         }
     }
 
-    private static void assertFileDataEquals(final String path, final byte[] data) {
+    private static void assertFileDataEquals(final String path1, final String path2) {
         try {
-            assertFileExists(path);
-            assertArrayEquals(data, Files.readAllBytes(Paths.get(path)));
+            assertFileExists(path1);
+            assertArrayEquals(Files.readAllBytes(Paths.get(path1)), Files.readAllBytes(Paths.get(path2)));
 
         } catch (final IOException e) {
             throw new AssertionError(e);

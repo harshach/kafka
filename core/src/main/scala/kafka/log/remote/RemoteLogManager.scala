@@ -118,7 +118,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
   private val rlmScheduledThreadPool = new RLMScheduledThreadPool(poolSize)
   @volatile private var closed = false
 
-  private def createRemoteStorageManager(): RemoteStorageManager = {
+  private def createRemoteStorageManager(): ClassLoaderAwareRemoteStorageManager = {
     val classPath = rlmConfig.remoteLogStorageManagerClassPath
     val rsmClassLoader = {
       if (classPath != null && !classPath.trim.isEmpty) {
@@ -163,7 +163,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     rlmm
   }
 
-  private val remoteLogStorageManager: RemoteStorageManager = createRemoteStorageManager()
+  private val remoteLogStorageManager: ClassLoaderAwareRemoteStorageManager = createRemoteStorageManager()
   private val remoteLogMetadataManager: RemoteLogMetadataManager = createRemoteLogMetadataManager()
 
   private val indexCache = new RemoteIndexCache(remoteStorageManager = remoteLogStorageManager, logDir = logDir)
@@ -188,10 +188,13 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     convertToLeaderOrFollower(rlmTaskWithFuture.rlmTask)
   }
 
-  def onServerStarted(): Unit = {
-    remoteLogMetadataManager.onServerStarted()
+  def onServerStarted(serverEndpoint: String): Unit = {
+    remoteLogMetadataManager.onServerStarted(serverEndpoint)
   }
 
+  def storageManager(): RemoteStorageManager = {
+    remoteLogStorageManager.delegate()
+  }
 
   /**
    * Callback to receive any leadership changes for the topic partitions assigned to this broker. If there are no

@@ -247,11 +247,11 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
     }
 
     @Override
-    public void onServerStarted() {
+    public void onServerStarted(final String serverEndpoint) {
         //create clients
         createAdminClient();
-        createProducer();
-        createConsumer();
+        createProducer(serverEndpoint);
+        createConsumer(serverEndpoint);
 
         // todo-tier use rocksdb
         //load the stored data
@@ -609,11 +609,12 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
         this.adminClient = AdminClient.create(props);
     }
 
-    private void createProducer() {
+    private void createProducer(final String bootstrapServer) {
         Map<String, Object> props = new HashMap<>(configs);
 
         props.put(ProducerConfig.CLIENT_ID_CONFIG, createClientId("producer"));
 
+        props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrapServer);
         props.put(KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer");
         props.put(VALUE_SERIALIZER_CLASS_CONFIG, RLMMSerializer.class.getName());
         props.put(ProducerConfig.ACKS_CONFIG, "all");
@@ -633,9 +634,10 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
         return REMOTE_LOG_METADATA_CLIENT_PREFIX + "_" + suffix + configs.get("broker.id") + "_" + hashCode();
     }
 
-    private void createConsumer() {
+    private void createConsumer(final String bootstrapServer) {
         Map<String, Object> props = new HashMap<>(configs);
 
+        props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrapServer);
         props.put(CommonClientConfigs.CLIENT_ID_CONFIG, createClientId("consumer"));
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
