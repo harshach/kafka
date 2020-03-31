@@ -254,7 +254,7 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
     }
 
     @Override
-    public void onServerStarted(String s) {
+    public void onServerStarted(String endpoint) {
         initialize();
     }
 
