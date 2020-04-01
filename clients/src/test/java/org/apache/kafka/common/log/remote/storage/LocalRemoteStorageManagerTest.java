@@ -36,7 +36,6 @@ import java.text.NumberFormat;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.stream.*;
 
 public final class LocalRemoteStorageManagerTest {
     @Rule
@@ -158,23 +157,39 @@ public final class LocalRemoteStorageManagerTest {
 
         remoteStorage.copyLogSegment(id, segment);
 
-        remoteStorage.traverse((remoteId, record) -> assertEquals(wrap(bytes), record.value()));
+        remoteStorage.traverse(new LocalRemoteStorageTraverser() {
+            @Override
+            public void visitTopicPartition(TopicPartition topicPartition) {
+                assertEquals(LocalRemoteStorageManagerTest.this.topicPartition, topicPartition);
+            }
+
+            @Override
+            public void visitRecord(RemoteLogSegmentId segmentId, Record record) {
+                assertEquals(wrap(bytes), record.value());
+            }
+
+            @Override
+            public void visitSegment(RemoteLogSegmentId segmentId) {
+            }
+        });
     }
 
     @Test
     public void traverseMultipleOffloadedRecordsInOneSegment() throws RemoteStorageException {
         final byte[] record1 = new byte[]{0, 1, 2};
         final byte[] record2 = new byte[]{3, 4, 5};
+        final RemoteLogSegmentId id = newRemoteLogSegmentId();
 
-        remoteStorage.copyLogSegment(newRemoteLogSegmentId(), localLogSegments.nextSegment(record1, record2));
+        remoteStorage.copyLogSegment(id, localLogSegments.nextSegment(record1, record2));
 
-        List<Record> traversed = new ArrayList<>();
-        remoteStorage.traverse((remoteId, record) -> traversed.add(record));
+        final LocalStorageSnapshot snapshot = new LocalStorageSnapshot();
+        remoteStorage.traverse(snapshot);
 
-        List<ByteBuffer> expected = asList(record1, record2).stream().map(ByteBuffer::wrap).collect(toList());
-        List<ByteBuffer> actual = traversed.stream().map(r -> r.value()).collect(toList());
+        final Map<RemoteLogSegmentId, List<ByteBuffer>> expected = new HashMap<>();
+        expected.put(id, asList(wrap(record1), wrap(record2)));
 
-        assertEquals(expected, actual);
+        assertEquals(asList(topicPartition), snapshot.topicPartitions);
+        assertEquals(expected, snapshot.records);
     }
 
     @Test
@@ -190,22 +205,15 @@ public final class LocalRemoteStorageManagerTest {
         remoteStorage.copyLogSegment(idA, localLogSegments.nextSegment(record1a, record2a));
         remoteStorage.copyLogSegment(idB, localLogSegments.nextSegment(record1b, record2b));
 
-        final Map<RemoteLogSegmentId, List<ByteBuffer>> traversed = new HashMap<>();
-
-        remoteStorage.traverse((remoteId, record) -> {
-            List<ByteBuffer> records = traversed.get(remoteId);
-            if (records == null) {
-                records = new ArrayList<>();
-                traversed.put(remoteId, records);
-            }
-            records.add(record.value());
-        });
+        final LocalStorageSnapshot snapshot = new LocalStorageSnapshot();
+        remoteStorage.traverse(snapshot);
 
         final Map<RemoteLogSegmentId, List<ByteBuffer>> expected = new HashMap<>();
         expected.put(idA, asList(wrap(record1a), wrap(record2a)));
         expected.put(idB, asList(wrap(record1b), wrap(record2b)));
 
-        assertEquals(expected, traversed);
+        assertEquals(asList(topicPartition), snapshot.topicPartitions);
+        assertEquals(expected, snapshot.records);
     }
 
     @Test
@@ -299,6 +307,40 @@ public final class LocalRemoteStorageManagerTest {
         void deleteAll() {
             Arrays.stream(segmentDir.listFiles()).forEach(File::delete);
             segmentDir.delete();
+        }
+    }
+
+    private static final class LocalStorageSnapshot implements LocalRemoteStorageTraverser {
+        final Map<RemoteLogSegmentId, List<ByteBuffer>> records = new HashMap<>();
+        final List<TopicPartition> topicPartitions = new ArrayList<>();
+
+        @Override
+        public void visitTopicPartition(TopicPartition topicPartition) {
+            if (topicPartitions.contains(topicPartition)) {
+                throw new IllegalStateException(format("Topic-partition %s was already visited", topicPartition));
+            }
+
+            this.topicPartitions.add(topicPartition);
+        }
+
+        @Override
+        public void visitSegment(RemoteLogSegmentId segmentId) {
+            if (records.containsKey(segmentId)) {
+                throw new IllegalStateException(format("Segment with id %s was already visited", segmentId));
+            }
+
+            records.put(segmentId, new ArrayList<>());
+        }
+
+        @Override
+        public void visitRecord(RemoteLogSegmentId segmentId, Record record) {
+            final List<ByteBuffer> segmentRecords = records.get(segmentId);
+
+            if (segmentRecords == null) {
+                throw new IllegalStateException(format("Segment with id %s was not visited", segmentId));
+            }
+
+            segmentRecords.add(record.value());
         }
     }
 }
