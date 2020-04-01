@@ -18,6 +18,7 @@ package org.apache.kafka.common.log.remote.storage;
 
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.InvalidConfigurationException;
+import org.apache.kafka.common.log.remote.storage.LocalRemoteStorageListener.*;
 import org.apache.kafka.common.record.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,7 +35,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.*;
 import java.util.*;
-import java.util.concurrent.Callable;
+import java.util.concurrent.*;
 
 /**
  * An implementation of {@link RemoteStorageManager} which relies on the local file system to store offloaded
@@ -47,7 +48,7 @@ import java.util.concurrent.Callable;
  * tests, the scope of a storage implemented by this class, and identified via the storage ID provided to the
  * constructor, should be limited to a test or well-defined self-contained use-case.
  */
-public final class LocalRemoteStorageManager implements RemoteStorageManager {
+public final class LocalRemoteStorage implements RemoteStorageManager {
     public static final String STORAGE_ID_PROP = "remote.log.storage.local.id";
     public static final String DELETE_ON_CLOSE_PROP = "remote.log.storage.local.delete.on.close";
     public static final String TRANSFERER_CLASS_PROP = "remote.log.storage.local.transferer";
@@ -55,7 +56,7 @@ public final class LocalRemoteStorageManager implements RemoteStorageManager {
 
     private static final String ROOT_STORAGES_DIR_NAME = "remote-storage";
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(LocalRemoteStorageManager.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(LocalRemoteStorage.class);
 
     /**
      * The ID assigned to this storage and used for reference. Using descriptive, unique ID is
@@ -82,11 +83,14 @@ public final class LocalRemoteStorageManager implements RemoteStorageManager {
      */
     private volatile Transferer transferer = (from, to) -> Files.copy(from.toPath(), to.toPath());
 
+    private final CompositeLocalRemoteStorageListener storageListener = new CompositeLocalRemoteStorageListener();
+
     /**
      * Walk through this storage and notify the traverser of the topic-partitions, segments and records stored.
      *
      * - The order of traversal of the topic-partition is not specified.
-     * - The order of traversal of the segments within a topic-partition is not specified.
+     * - The order of traversal of the segments within a topic-partition is in ascending order
+     *   of the modified timestamp of the segment file.
      * - The order of traversal of records within a segment corresponds to the insertion
      *   order of these records in the original segment from which the segment in this storage
      *   was transferred from.
@@ -135,6 +139,10 @@ public final class LocalRemoteStorageManager implements RemoteStorageManager {
                                 format("Error reading records for %s", file.getName()), e);
                     }
                 });
+    }
+
+    public void addListener(final LocalRemoteStorageListener listener) {
+        this.storageListener.add(listener);
     }
 
     @Override
@@ -192,12 +200,18 @@ public final class LocalRemoteStorageManager implements RemoteStorageManager {
             try {
                 final TopicPartition topicPartition = id.topicPartition();
 
+                if (!remote.partitionDirectory.existed) {
+                    storageListener.onTopicPartitionCreated(topicPartition);
+                }
+
                 LOGGER.info(format("Transferring log segment for topic=%s partition=%d from offset=%s",
                         topicPartition.topic(),
                         topicPartition.partition(),
                         data.logSegment().getName().split("\\.")[0]));
 
                 remote.copyAll(data);
+
+                storageListener.onSegmentCreated(id, remote.logSegment);
 
             } catch (final Exception e) {
                 //
@@ -343,15 +357,14 @@ public final class LocalRemoteStorageManager implements RemoteStorageManager {
         private static final String OFFSET_SUFFIX = "offset";
         private static final String TIME_SUFFIX = "time";
 
-        private final File partitionDirectory;
+        private final Directory partitionDirectory;
         private final File logSegment;
         private final File offsetIndex;
         private final File timeIndex;
 
         RemoteLogSegmentFiles(final RemoteLogSegmentId id, final boolean shouldExist) throws RemoteStorageException {
             final TopicPartition tp = id.topicPartition();
-            this.partitionDirectory =
-                    openDirectory(format("%s-%d", tp.topic(), tp.partition()), storageDirectory).directory;
+            this.partitionDirectory = openDirectory(format("%s-%d", tp.topic(), tp.partition()), storageDirectory);
 
             this.logSegment = remoteFile(id, SEGMENT_SUFFIX, shouldExist);
             this.offsetIndex = remoteFile(id, OFFSET_SUFFIX, shouldExist);
@@ -365,12 +378,13 @@ public final class LocalRemoteStorageManager implements RemoteStorageManager {
         }
 
         private boolean deleteAll() {
-            return deleteFilesOnly(asList(logSegment, offsetIndex, timeIndex)) && deleteQuietly(partitionDirectory);
+            return deleteFilesOnly(asList(logSegment, offsetIndex, timeIndex))
+                    && deleteQuietly(partitionDirectory.directory);
         }
 
         private File remoteFile(final RemoteLogSegmentId id, final String suffix, final boolean shouldExist)
                 throws RemoteResourceNotFoundException {
-            File file = new File(partitionDirectory, format("%s-%s", id.id().toString(), suffix));
+            File file = new File(partitionDirectory.directory, format("%s-%s", id.id().toString(), suffix));
             if (!file.exists() && shouldExist) {
                 throw new RemoteResourceNotFoundException(id, format("File %s not found", file.getName()));
             }
@@ -408,7 +422,7 @@ public final class LocalRemoteStorageManager implements RemoteStorageManager {
             return false;
         }
 
-        return files.stream().map(LocalRemoteStorageManager::deleteQuietly).reduce(true, Boolean::logicalAnd);
+        return files.stream().map(LocalRemoteStorage::deleteQuietly).reduce(true, Boolean::logicalAnd);
     }
 
     private static boolean deleteQuietly(final File file) {

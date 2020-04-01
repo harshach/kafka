@@ -24,7 +24,7 @@ import org.junit.rules.TestName;
 import static java.lang.String.format;
 import static java.nio.ByteBuffer.*;
 import static java.util.Arrays.*;
-import static java.util.stream.Collectors.*;
+import static org.apache.kafka.common.log.remote.storage.LocalRemoteStorageSnapshot.*;
 import static org.junit.Assert.*;
 
 import java.io.File;
@@ -44,16 +44,16 @@ public final class LocalRemoteStorageManagerTest {
     private final LocalLogSegments localLogSegments = new LocalLogSegments();
     private final TopicPartition topicPartition = new TopicPartition("my-topic", 1);
 
-    private LocalRemoteStorageManager remoteStorage;
+    private LocalRemoteStorage remoteStorage;
     private LocalRemoteStorageVerifier remoteStorageVerifier;
 
     private void init(Map<String, Object> extraConfig) {
-        remoteStorage = new LocalRemoteStorageManager();
+        remoteStorage = new LocalRemoteStorage();
         remoteStorageVerifier = new LocalRemoteStorageVerifier(remoteStorage, topicPartition);
 
         Map<String, Object> config = new HashMap<>();
-        config.put(LocalRemoteStorageManager.STORAGE_ID_PROP, generateStorageId());
-        config.put(LocalRemoteStorageManager.DELETE_ON_CLOSE_PROP, "false");
+        config.put(LocalRemoteStorage.STORAGE_ID_PROP, generateStorageId());
+        config.put(LocalRemoteStorage.DELETE_ON_CLOSE_PROP, "true");
         config.putAll(extraConfig);
 
         remoteStorage.configure(config);
@@ -136,7 +136,7 @@ public final class LocalRemoteStorageManagerTest {
 
     @Test
     public void segmentsAreNotDeletedIfDeleteApiIsDisabled() throws RemoteStorageException {
-        init(Collections.singletonMap(LocalRemoteStorageManager.ENABLE_DELETE_API_PROP, "false"));
+        init(Collections.singletonMap(LocalRemoteStorage.ENABLE_DELETE_API_PROP, "false"));
 
         final RemoteLogSegmentId id = newRemoteLogSegmentId();
         final LogSegmentData segment = localLogSegments.nextSegment();
@@ -170,6 +170,7 @@ public final class LocalRemoteStorageManagerTest {
 
             @Override
             public void visitSegment(RemoteLogSegmentId segmentId) {
+                assertEquals(id, segmentId);
             }
         });
     }
@@ -182,14 +183,13 @@ public final class LocalRemoteStorageManagerTest {
 
         remoteStorage.copyLogSegment(id, localLogSegments.nextSegment(record1, record2));
 
-        final LocalStorageSnapshot snapshot = new LocalStorageSnapshot();
-        remoteStorage.traverse(snapshot);
+        final LocalRemoteStorageSnapshot snapshot = takeSnapshot(remoteStorage);
 
         final Map<RemoteLogSegmentId, List<ByteBuffer>> expected = new HashMap<>();
         expected.put(id, asList(wrap(record1), wrap(record2)));
 
-        assertEquals(asList(topicPartition), snapshot.topicPartitions);
-        assertEquals(expected, snapshot.records);
+        assertEquals(asList(topicPartition), snapshot.getTopicPartitions());
+        assertEquals(expected, snapshot.getRecords());
     }
 
     @Test
@@ -205,15 +205,14 @@ public final class LocalRemoteStorageManagerTest {
         remoteStorage.copyLogSegment(idA, localLogSegments.nextSegment(record1a, record2a));
         remoteStorage.copyLogSegment(idB, localLogSegments.nextSegment(record1b, record2b));
 
-        final LocalStorageSnapshot snapshot = new LocalStorageSnapshot();
-        remoteStorage.traverse(snapshot);
+        final LocalRemoteStorageSnapshot snapshot = takeSnapshot(remoteStorage);
 
         final Map<RemoteLogSegmentId, List<ByteBuffer>> expected = new HashMap<>();
         expected.put(idA, asList(wrap(record1a), wrap(record2a)));
         expected.put(idB, asList(wrap(record1b), wrap(record2b)));
 
-        assertEquals(asList(topicPartition), snapshot.topicPartitions);
-        assertEquals(expected, snapshot.records);
+        assertEquals(asList(topicPartition), snapshot.getTopicPartitions());
+        assertEquals(expected, snapshot.getRecords());
     }
 
     @Test
@@ -307,40 +306,6 @@ public final class LocalRemoteStorageManagerTest {
         void deleteAll() {
             Arrays.stream(segmentDir.listFiles()).forEach(File::delete);
             segmentDir.delete();
-        }
-    }
-
-    private static final class LocalStorageSnapshot implements LocalRemoteStorageTraverser {
-        final Map<RemoteLogSegmentId, List<ByteBuffer>> records = new HashMap<>();
-        final List<TopicPartition> topicPartitions = new ArrayList<>();
-
-        @Override
-        public void visitTopicPartition(TopicPartition topicPartition) {
-            if (topicPartitions.contains(topicPartition)) {
-                throw new IllegalStateException(format("Topic-partition %s was already visited", topicPartition));
-            }
-
-            this.topicPartitions.add(topicPartition);
-        }
-
-        @Override
-        public void visitSegment(RemoteLogSegmentId segmentId) {
-            if (records.containsKey(segmentId)) {
-                throw new IllegalStateException(format("Segment with id %s was already visited", segmentId));
-            }
-
-            records.put(segmentId, new ArrayList<>());
-        }
-
-        @Override
-        public void visitRecord(RemoteLogSegmentId segmentId, Record record) {
-            final List<ByteBuffer> segmentRecords = records.get(segmentId);
-
-            if (segmentRecords == null) {
-                throw new IllegalStateException(format("Segment with id %s was not visited", segmentId));
-            }
-
-            segmentRecords.add(record.value());
         }
     }
 }
