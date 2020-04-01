@@ -18,8 +18,6 @@ package org.apache.kafka.common.log.remote.storage;
 
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.record.*;
-import org.apache.kafka.common.utils.*;
-import org.junit.*;
 
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
@@ -32,10 +30,10 @@ import java.nio.file.Paths;
 import java.util.*;
 
 public final class LocalRemoteStorageVerifier {
-    private final LocalRemoteStorageManager remoteStorage;
+    private final LocalRemoteStorage remoteStorage;
     private final TopicPartition topicPartition;
 
-    public LocalRemoteStorageVerifier(final LocalRemoteStorageManager remoteStorage,
+    public LocalRemoteStorageVerifier(final LocalRemoteStorage remoteStorage,
                                       final TopicPartition topicPartition) {
 
         this.remoteStorage = requireNonNull(remoteStorage);
