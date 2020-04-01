@@ -5,7 +5,7 @@ import org.apache.kafka.common.record.*;
 
 /**
  * Used to walk through a local remote storage, providing a support to tests to explore the content of the storage.
- * This interface is to be used with the {@link LocalRemoteStorageManager} and is intended for tests only.
+ * This interface is to be used with the {@link LocalRemoteStorage} and is intended for tests only.
  */
 public interface LocalRemoteStorageTraverser {
 
