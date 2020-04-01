@@ -82,6 +82,23 @@ public final class LocalRemoteStorageManager implements RemoteStorageManager {
      */
     private volatile Transferer transferer = (from, to) -> Files.copy(from.toPath(), to.toPath());
 
+    /**
+     * Walk through this storage and notify the traverser of the topic-partitions, segments and records stored.
+     *
+     * - The order of traversal of the topic-partition is not specified.
+     * - The order of traversal of the segments within a topic-partition is not specified.
+     * - The order of traversal of records within a segment corresponds to the insertion
+     *   order of these records in the original segment from which the segment in this storage
+     *   was transferred from.
+     *
+     * This storage may change while being traversed topic-partitions, segments and records are communicated
+     * to the traverser. There is no guarantee updates to the storage which happens during traversal will be
+     * communicated to the traverser. Especially, in case of concurrent read and write/delete to a
+     * topic-partition, a segment or a record, the behaviour depends on the underlying file system.
+     *
+     * @param traverser User-specified object to which this storage communicates the topic-partitions, segments
+     *                  and records as they are discovered.
+     */
     public void traverse(final LocalRemoteStorageTraverser traverser) {
         Objects.requireNonNull(traverser);
 
@@ -89,19 +106,33 @@ public final class LocalRemoteStorageManager implements RemoteStorageManager {
 
         Arrays.stream(topicPartitionDirectories)
                 .filter(File::isDirectory)
-                .map(File::listFiles)
+                .map(directory -> {
+                    try {
+                        final TopicPartition topicPartition = extractTopicPartition(directory.getAbsolutePath());
+                        traverser.visitTopicPartition(topicPartition);
+                        return directory.listFiles();
+
+                    } catch (RemoteStorageException e) {
+                        throw new RuntimeException(
+                                format("Error reading topic-partition for directory %s", directory), e);
+                    }
+                })
                 .flatMap(Arrays::stream)
                 .filter(f -> f.getName().endsWith(RemoteLogSegmentFiles.SEGMENT_SUFFIX))
                 .sorted((f, g) -> f.lastModified() <= g.lastModified() ? -1 : 1)
                 .forEach(file -> {
                     try {
-                        final RemoteLogSegmentId id = extractRemoteLogSegmentId(file);
+                        final RemoteLogSegmentId id = extractRemoteLogSegmentId(file.getAbsolutePath());
+                        traverser.visitSegment(id);
+
                         final Records records = FileRecords.open(file);
                         for (Record record : records.records()) {
                             traverser.visitRecord(id, record);
                         }
+
                     } catch (IOException | RemoteStorageException e) {
-                        throw new RuntimeException(format("Error reading records for %s", file.getName()), e);
+                        throw new RuntimeException(
+                                format("Error reading records for %s", file.getName()), e);
                     }
                 });
     }
@@ -398,33 +429,40 @@ public final class LocalRemoteStorageManager implements RemoteStorageManager {
         }
     }
 
-    private static RemoteLogSegmentId extractRemoteLogSegmentId(final File file) throws RemoteStorageException {
-        final String[] subpaths = file.getAbsolutePath().split(File.separator);
-        if (subpaths.length < 2) {
-            throw new RemoteStorageException(format(
-                    "Invalid path for file %s, expected at least 2 containing directories", file.getAbsolutePath()));
-        }
-
-        final String innerDirectory = subpaths[subpaths.length - 2];
+    private static TopicPartition extractTopicPartition(final String path) throws RemoteStorageException {
+        final String[] subpaths = path.split(File.separator);
+        final String topicPartitionDirectory = subpaths[subpaths.length - 1];
 
         final char topicParitionSeparator = '-';
-        final int separatorIndex = innerDirectory.lastIndexOf(topicParitionSeparator);
+        final int separatorIndex = topicPartitionDirectory.lastIndexOf(topicParitionSeparator);
 
         if (separatorIndex == -1) {
             throw new RemoteStorageException(format(
-                    "Invalid format for topic-partition directory: %s", innerDirectory));
+                    "Invalid format for topic-partition directory: %s", topicPartitionDirectory));
         }
 
-        final String topic = innerDirectory.substring(0, separatorIndex);
+        final String topic = topicPartitionDirectory.substring(0, separatorIndex);
         final int partition;
 
         try {
-            partition = Integer.parseInt(innerDirectory.substring(separatorIndex + 1));
+            partition = Integer.parseInt(topicPartitionDirectory.substring(separatorIndex + 1));
 
         } catch (NumberFormatException ex) {
             throw new RemoteStorageException(format(
-                    "Invalid format for topic-partition directory: %s", innerDirectory), ex);
+                    "Invalid format for topic-partition directory: %s", topicPartitionDirectory), ex);
         }
+
+        return new TopicPartition(topic, partition);
+    }
+
+    private static RemoteLogSegmentId extractRemoteLogSegmentId(final String path) throws RemoteStorageException {
+        final String[] subpaths = path.split(File.separator);
+        if (subpaths.length < 2) {
+            throw new RemoteStorageException(format(
+                    "Invalid path for file %s, expected at least 2 containing directories", path));
+        }
+
+        final TopicPartition topicPartition = extractTopicPartition(subpaths[subpaths.length - 2]);
 
         final String filename = subpaths[subpaths.length - 1];
         if (!filename.endsWith("-" + RemoteLogSegmentFiles.SEGMENT_SUFFIX)) {
@@ -441,6 +479,6 @@ public final class LocalRemoteStorageManager implements RemoteStorageManager {
                     "Invalid format for remote segment file: %s", filename), ex);
         }
 
-        return new RemoteLogSegmentId(new TopicPartition(topic, partition), uuid);
+        return new RemoteLogSegmentId(topicPartition, uuid);
     }
 }
