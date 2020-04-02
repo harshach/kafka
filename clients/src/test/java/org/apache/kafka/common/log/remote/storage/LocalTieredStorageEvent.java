@@ -21,6 +21,7 @@ import org.apache.kafka.common.TopicPartition;
 import java.util.Optional;
 
 import static java.lang.String.format;
+
 import static java.util.Objects.requireNonNull;
 import static java.util.Optional.ofNullable;
 
