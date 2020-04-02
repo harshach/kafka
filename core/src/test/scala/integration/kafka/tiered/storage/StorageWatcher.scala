@@ -17,19 +17,55 @@
 package kafka.tiered.storage
 
 import java.io.File
+import java.util.concurrent.TimeUnit
 
+import kafka.log.Log
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.utils.Time
 
 final class StorageWatcher(private val storageDirname: String) {
   private val storageDirectory = new File(storageDirname)
 
-  def getEarliestOffset(topicPartition: TopicPartition): Unit = {
-    val files = storageDirectory.listFiles().toSeq
-//    val topicPartitionDir = files.map(_.getName).find(_ == topicPartition.toString).getOrElse {
-//      throw new IllegalArgumentException(s"Directory for the topic-partition $topicPartition was not found")
-//    }
-    files.isEmpty
-    //val topicPartitionFiles =
+  /**
+    * InitialTaskDelayMs
+    */
+  private val storageWaitTimeoutSec = 35
+  private val storagePollPeriodSec = 1
+  private val time = Time.SYSTEM
+
+  def waitForEarliestOffset(topicPartition: TopicPartition,
+                            offset: Long,
+                            timeout: Long = storageWaitTimeoutSec,
+                            unit: TimeUnit = TimeUnit.SECONDS): Unit = {
+
+    val timer = time.timer(unit.toMillis(timeout))
+    var earliestOffset = 0L
+
+    while (timer.notExpired() && earliestOffset < offset) {
+      timer.sleep(unit.toMillis(storagePollPeriodSec))
+      earliestOffset = getEarliestOffset(topicPartition)
+    }
+
+    assert(earliestOffset >= offset)
+  }
+
+  private def getEarliestOffset(topicPartition: TopicPartition): Long = {
+    val topicPartitionDir = storageDirectory
+      .listFiles()
+      .map(_.getName)
+      .find(_ == topicPartition.toString)
+      .getOrElse {
+        throw new IllegalArgumentException(s"Directory for the topic-partition $topicPartition was not found")
+      }
+
+    val firstLogFile = new File(storageDirectory, topicPartitionDir)
+      .listFiles()
+      .map(_.getName())
+      .filter(_.endsWith(Log.LogFileSuffix))
+      .sorted
+      .head
+
+    Log.offsetFromFileName(firstLogFile)
   }
 
 }

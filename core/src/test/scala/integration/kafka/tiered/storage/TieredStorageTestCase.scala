@@ -17,24 +17,25 @@
 package kafka.tiered.storage
 
 import java.nio.ByteBuffer
-import java.time.Duration
 import java.util.Properties
 import java.util.concurrent.TimeUnit
 
 import kafka.server.KafkaServer
 import kafka.utils.TestUtils
 import kafka.zk.KafkaZkClient
-import org.apache.kafka.clients.consumer.KafkaConsumer
+import org.apache.kafka.clients.consumer.{ConsumerRecord, KafkaConsumer}
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.TopicConfig
 import org.apache.kafka.common.log.remote.storage.{LocalTieredStorage, LocalTieredStorageSnapshot, RemoteLogSegmentFileset}
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorageWatcher.newWatcherBuilder
-import org.apache.kafka.common.record.Record
+import org.apache.kafka.common.record.{Record, SimpleRecord}
 import org.apache.kafka.common.serialization.{StringDeserializer, StringSerializer}
-import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
+import org.apache.kafka.common.utils.Utils
+import org.junit.Assert.{assertEquals, assertNotNull, assertNull}
 
 import scala.collection.{Seq, mutable}
+import scala.collection.JavaConverters._
 
 /**
   * Helps define the specifications of a test case to exercise the support for tiered storage in Apache Kafka.
@@ -64,68 +65,83 @@ final class TieredStorageTestCase(val recordsToProduce: Map[TopicPartition, Seq[
     recordsToProduce.values.flatten.foreach(producer.send(_).get())
 
     tieredStorageWatcher.watch(offloadWaitTimeoutSec, TimeUnit.SECONDS)
-  }
 
-  def verify(): Unit = {
-    import scala.jdk.CollectionConverters._
+    recordsToProduce.foreach {
+      _ match {
+        case (topicPartition, producedRecords) =>
+          kafkaStorageWatcher.waitForEarliestOffset(topicPartition, 1L)
 
-    val snapshot = LocalTieredStorageSnapshot.takeSnapshot(tieredStorage)
+          consumer.assign(Seq(topicPartition).asJava)
 
-    offloadedSegments.foreach { x: (TopicPartition, Seq[OffloadedSegmentSpec]) =>
-      val topicPartition = x._1
-      val specs = x._2
-
-      snapshot.getFilesets(topicPartition).asScala
-        .sortWith((x, y) => x.getRecords.get(0).offset() <= y.getRecords.get(0).offset())
-        .zip(specs)
-        .foreach {
-          pair => compareRecords(pair._1, pair._2)
-        }
+          val consumedRecords = TestUtils.consumeRecords(consumer, producedRecords.length)
+          compareRecords(producedRecords.map(simplify), consumedRecords.map(simplify))
+      }
     }
   }
 
-  private def compareRecords(fileset: RemoteLogSegmentFileset, spec: OffloadedSegmentSpec): Unit = {
-    import scala.jdk.CollectionConverters._
+  def verify(): Unit = {
+    val snapshot = LocalTieredStorageSnapshot.takeSnapshot(tieredStorage)
 
+    offloadedSegments.foreach {
+      _ match {
+        case (topicPartition: TopicPartition, specs: Seq[OffloadedSegmentSpec]) =>
+          snapshot.getFilesets(topicPartition).asScala
+            .sortWith((x, y) => x.getRecords.get(0).offset() <= y.getRecords.get(0).offset())
+            .zip(specs)
+            .foreach {
+              pair => compareRecords(pair._1, pair._2)
+            }
+      }
+    }
+  }
+
+  private def compareRecords(expectedRecords: Seq[SimpleRecord], actualRecords: Seq[SimpleRecord]): Unit = {
+    assertEquals(s"Invalid number of records found", expectedRecords.length, actualRecords.length)
+
+    expectedRecords.zip(actualRecords).foreach {
+      _ match {
+        case (expected, actual) =>
+          Option(expected.key())
+            .map { key =>
+              assertNotNull(actual.key())
+              assertEquals("Key mismatch. Expected: $key", key, actual.key())
+            }
+            .getOrElse {
+              assertNull(actual.key())
+            }
+
+          assertEquals(s"Producer value mismatch. Expected: ${expected.value()}",
+            expected.value(), actual.value())
+      }
+    }
+  }
+
+  private def simplify(record: Record): SimpleRecord = {
+    new SimpleRecord(record.timestamp(), record.key(), record.value(), record.headers())
+  }
+
+  private def simplify(record: ProducerRecord[String, String]): SimpleRecord = {
+    new SimpleRecord(record.timestamp(),
+      ByteBuffer.wrap(record.key().getBytes),
+      ByteBuffer.wrap(record.value().getBytes()),
+      record.headers().toArray)
+  }
+
+  private def simplify(record: ConsumerRecord[String, String]): SimpleRecord = {
+    new SimpleRecord(record.timestamp(),
+      ByteBuffer.wrap(record.key().getBytes),
+      ByteBuffer.wrap(record.value().getBytes()),
+      record.headers().toArray)
+  }
+
+  private def compareRecords(fileset: RemoteLogSegmentFileset, spec: OffloadedSegmentSpec): Unit = {
     // Records found in the local tiered storage.
     val discoveredRecords = fileset.getRecords.asScala
 
     // Records expected to be found, based on what was sent by the producer.
     val producerRecords = spec.records
 
-    assertEquals(
-      s"Invalid number of records found for topic-partition ${spec.topicPartition} " +
-      s"for segment of expected based offset ${spec.baseOffset}.",
-      producerRecords.length,
-      discoveredRecords.length
-    )
-
-    producerRecords.zip(discoveredRecords).foreach {
-        _ match {
-          case (producerRecord: ProducerRecord[String, String], discoveredRecord: Record) =>
-            Option(producerRecord.key())
-              .map { key =>
-                assertTrue(discoveredRecord.hasKey)
-                assertEquals(
-                  s"Key mismatch. Expected: $key",
-                  ByteBuffer.wrap(key.getBytes()),
-                  discoveredRecord.key()
-                )
-              }
-            .getOrElse {
-              assertFalse(discoveredRecord.hasKey)
-            }
-
-            val producerValue = ByteBuffer.wrap(producerRecord.value().getBytes())
-            val discoceredValue = discoveredRecord.value()
-
-            assertEquals(
-              s"Producer value mismatch. Expected: ${producerRecord.value()}",
-              producerValue,
-              discoceredValue
-            )
-       }
-    }
+    compareRecords(producerRecords.map(simplify), discoveredRecords.map(simplify))
 
     assertEquals(
       "Base offset of segment mismatch",
@@ -135,7 +151,7 @@ final class TieredStorageTestCase(val recordsToProduce: Map[TopicPartition, Seq[
   }
 
   def tearDown(): Unit = {
-    producer.close(Duration.ZERO)
+    Utils.closeAll(producer, consumer)
   }
 }
 
@@ -174,7 +190,7 @@ final class TieredStorageTestCaseBuilder(private val kafkaServers: Seq[KafkaServ
     // defined below.
     //
     if (segmentSize != -1) {
-      assert(segmentSize >= 1)
+      assert(segmentSize >= 1, s"Segments size for topic ${name} needs to be >= 1")
       topicProps.put(TopicConfig.SEGMENT_INDEX_BYTES_CONFIG, (12 * segmentSize).toString)
     }
 
