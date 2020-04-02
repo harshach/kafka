@@ -12,9 +12,9 @@ import kafka.utils.TestUtils.createBrokerConfigs
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.TopicConfig
-import org.apache.kafka.common.log.remote.storage.LocalRemoteStorage.{DELETE_ON_CLOSE_PROP, STORAGE_ID_PROP}
-import org.apache.kafka.common.log.remote.storage.LocalRemoteStorageWaiter.newWaiter
-import org.apache.kafka.common.log.remote.storage.{LocalRemoteStorage, LocalRemoteStorageSnapshot, RLMMWithTopicStorage}
+import org.apache.kafka.common.log.remote.storage.LocalTieredStorage.{DELETE_ON_CLOSE_PROP, STORAGE_ID_PROP}
+import org.apache.kafka.common.log.remote.storage.LocalTieredStorageWaiter.newWaiter
+import org.apache.kafka.common.log.remote.storage.{LocalTieredStorage, LocalTieredStorageSnapshot, RLMMWithTopicStorage}
 import org.apache.kafka.common.serialization.StringSerializer
 import org.junit.Assert.assertEquals
 import org.junit.{Assert, Test}
@@ -24,7 +24,7 @@ class TieredStorageTest extends IntegrationTestHarness {
   override def generateConfigs: Seq[KafkaConfig] = {
     val overridingProps = new Properties()
     overridingProps.setProperty(KafkaConfig.RemoteLogStorageEnableProp, true.toString)
-    overridingProps.setProperty(KafkaConfig.RemoteLogStorageManagerProp, classOf[LocalRemoteStorage].getName)
+    overridingProps.setProperty(KafkaConfig.RemoteLogStorageManagerProp, classOf[LocalTieredStorage].getName)
     overridingProps.setProperty(KafkaConfig.RemoteLogMetadataManagerProp, classOf[RLMMWithTopicStorage].getName)
     overridingProps.setProperty(KafkaConfig.RemoteLogManagerTaskIntervalMsProp, 1000.toString)
     overridingProps.setProperty(KafkaConfig.RemoteLogMetadataTopicReplicationFactorProp, 1.toString)
@@ -44,7 +44,7 @@ class TieredStorageTest extends IntegrationTestHarness {
 
     TestUtils.createTopic(zkClient, "phoque", brokerCount, brokerCount, servers, topicProps)
 
-    val remoteStorage = serverForId(0).get.remoteLogManager.get.storageManager().asInstanceOf[LocalRemoteStorage]
+    val remoteStorage = serverForId(0).get.remoteLogManager.get.storageManager().asInstanceOf[LocalTieredStorage]
     val tp = new TopicPartition("phoque", 0)
 
     val waiter = newWaiter().addSegmentsToWaitFor(tp, 1).fromStorage(remoteStorage)
@@ -55,7 +55,7 @@ class TieredStorageTest extends IntegrationTestHarness {
 
     waiter.waitForSegments(5, TimeUnit.SECONDS)
 
-    val snapshot = LocalRemoteStorageSnapshot.takeSnapshot(remoteStorage)
+    val snapshot = LocalTieredStorageSnapshot.takeSnapshot(remoteStorage)
 
     assertEquals(util.Arrays.asList(tp), snapshot.getTopicPartitions)
 

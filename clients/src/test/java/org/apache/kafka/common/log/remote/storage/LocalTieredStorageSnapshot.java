@@ -8,12 +8,12 @@ import java.util.*;
 
 import static java.lang.String.*;
 
-public final class LocalRemoteStorageSnapshot {
+public final class LocalTieredStorageSnapshot {
 
-    public static LocalRemoteStorageSnapshot takeSnapshot(final LocalRemoteStorage storage) {
+    public static LocalTieredStorageSnapshot takeSnapshot(final LocalTieredStorage storage) {
         Snapshot snapshot = new Snapshot();
         storage.traverse(snapshot);
-        return new LocalRemoteStorageSnapshot(snapshot);
+        return new LocalTieredStorageSnapshot(snapshot);
     }
 
     public List<TopicPartition> getTopicPartitions() {
@@ -26,11 +26,11 @@ public final class LocalRemoteStorageSnapshot {
 
     private final Snapshot snapshot;
 
-    private LocalRemoteStorageSnapshot(final Snapshot snapshot) {
+    private LocalTieredStorageSnapshot(final Snapshot snapshot) {
         Objects.requireNonNull(this.snapshot = snapshot);
     }
 
-    private static final class Snapshot implements LocalRemoteStorageTraverser {
+    private static final class Snapshot implements LocalTieredStorageTraverser {
         private final Map<RemoteLogSegmentId, List<ByteBuffer>> records = new HashMap<>();
         private final List<TopicPartition> topicPartitions = new ArrayList<>();
 

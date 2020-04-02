@@ -7,19 +7,31 @@ import java.io.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
-import java.util.stream.*;
 
 import static java.lang.String.*;
 import static java.util.stream.Collectors.*;
 
-public final class LocalRemoteStorageWaiter {
+/**
+ * Provides support to wait on internal modifications from the local tiered storage.
+ */
+public final class LocalTieredStorageWaiter {
     private final Map<TopicPartition, AtomicInteger> remainingSegments;
     private final CountDownLatch latch;
 
-    public static LocalRemoteStorageWaiter.Builder newWaiter() {
-        return new LocalRemoteStorageWaiter.Builder();
+    public static LocalTieredStorageWaiter.Builder newWaiter() {
+        return new LocalTieredStorageWaiter.Builder();
     }
 
+    /**
+     * Wait for the provided number of segments to be available in the tiered storage. Only the number of
+     * segments provided for the topic-partition registered with this waiter is accounted for.
+     *
+     * @param timeout the maximum time to wait.
+     * @param unit the time unit of the {@code timeout} argument.
+     *
+     * @throws InterruptedException if the current thread is interrupted while waiting.
+     * @throws TimeoutException if the time specified by {@code timeout} elapsed before all segments were reported.
+     */
     public void waitForSegments(final long timeout, final TimeUnit unit) throws InterruptedException, TimeoutException {
         LOGGER.debug("Waiting on segments from topic-partitions: {}", remainingSegments);
 
@@ -30,9 +42,9 @@ public final class LocalRemoteStorageWaiter {
         }
     }
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(LocalRemoteStorageWaiter.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(LocalTieredStorageWaiter.class);
 
-    private final class InternalListener implements LocalRemoteStorageListener {
+    private final class InternalListener implements LocalTieredStorageListener {
         @Override
         public void onTopicPartitionCreated(TopicPartition topicPartition) {
         }
@@ -49,24 +61,29 @@ public final class LocalRemoteStorageWaiter {
         }
     }
 
-    private LocalRemoteStorageWaiter(final Builder builder) {
+    private LocalTieredStorageWaiter(final Builder builder) {
         this.remainingSegments = Collections.unmodifiableMap(builder.segmentCountDowns);
-
         final int segmentCount = remainingSegments.values().stream().collect(summingInt(AtomicInteger::get));
-
         this.latch = new CountDownLatch(segmentCount);
     }
 
     public static final class Builder {
         private final Map<TopicPartition, AtomicInteger> segmentCountDowns = new HashMap<>();
 
+        /**
+         * Add the expected number of segments from the provided topic-partitions as part of the condition
+         * to wait upon.
+         */
         public Builder addSegmentsToWaitFor(final TopicPartition topicPartition, final int numberOfSegments) {
             segmentCountDowns.put(topicPartition, new AtomicInteger(numberOfSegments));
             return this;
         }
 
-        public LocalRemoteStorageWaiter fromStorage(final LocalRemoteStorage storage) {
-            final LocalRemoteStorageWaiter waiter = new LocalRemoteStorageWaiter(this);
+        /**
+         * Builds a new waiter listening for notifications from the given storage.
+         */
+        public LocalTieredStorageWaiter fromStorage(final LocalTieredStorage storage) {
+            final LocalTieredStorageWaiter waiter = new LocalTieredStorageWaiter(this);
             storage.addListener(waiter.new InternalListener());
             return waiter;
         }
