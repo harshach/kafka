@@ -249,7 +249,7 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
     @Override
     public void onServerStarted(final String serverEndpoint) {
         //create clients
-        createAdminClient();
+        createAdminClient(serverEndpoint);
         createProducer(serverEndpoint);
         createConsumer(serverEndpoint);
 
@@ -600,8 +600,9 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
         }
     }
 
-    private void createAdminClient() {
+    private void createAdminClient(final String bootstrapServer) {
         Map<String, Object> props = new HashMap<>(configs);
+        props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrapServer);
         props.put(ProducerConfig.CLIENT_ID_CONFIG, createClientId("admin"));
         props.put(ProducerConfig.RETRIES_CONFIG, Integer.MAX_VALUE);
         props.put(ProducerConfig.RETRY_BACKOFF_MS_CONFIG, 5000);

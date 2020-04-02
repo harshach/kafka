@@ -20,6 +20,10 @@ public interface LocalRemoteStorageListener {
 
     void onSegmentCreated(RemoteLogSegmentId id, File segmentFile);
 
+    /**
+     * Delegates to a list of listeners in insertion order. Failure of one listener does not
+     * prevent execution of next ones in the list.
+     */
     final class CompositeLocalRemoteStorageListener implements LocalRemoteStorageListener {
         private static final Logger LOGGER = LoggerFactory.getLogger(LocalRemoteStorageListener.class);
         private final List<LocalRemoteStorageListener> listeners = new CopyOnWriteArrayList<>();
