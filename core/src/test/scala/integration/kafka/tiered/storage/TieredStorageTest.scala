@@ -12,10 +12,10 @@ import kafka.utils.TestUtils.createBrokerConfigs
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.TopicConfig
+import org.apache.kafka.common.log.remote.metadata.storage.RLMMWithTopicStorage
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorage.{DELETE_ON_CLOSE_PROP, STORAGE_ID_PROP}
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorageWaiter.newWaiter
-import org.apache.kafka.common.log.remote.storage.{LocalTieredStorage, LocalTieredStorageSnapshot, RLMMWithTopicStorage}
-import org.apache.kafka.common.record.{AbstractRecords, CompressionType, DefaultRecord, DefaultRecordBatch, RecordBatch}
+import org.apache.kafka.common.log.remote.storage.{LocalTieredStorage, LocalTieredStorageSnapshot}
 import org.apache.kafka.common.serialization.StringSerializer
 import org.junit.Assert.assertEquals
 import org.junit.{Assert, Test}
