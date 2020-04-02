@@ -83,6 +83,9 @@ public final class LocalRemoteStorage implements RemoteStorageManager {
      */
     private volatile Transferer transferer = (from, to) -> Files.copy(from.toPath(), to.toPath());
 
+    /**
+     * Used to notify
+     */
     private final CompositeLocalRemoteStorageListener storageListener = new CompositeLocalRemoteStorageListener();
 
     /**

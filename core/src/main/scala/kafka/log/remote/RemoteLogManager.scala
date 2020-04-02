@@ -279,7 +279,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     // When looking for new remote segments, we will only look for the remote segments that contains larger offsets
     private var readOffset: Long = {
       val metadatas = remoteLogMetadataManager.listRemoteLogSegments(tp)
-      if(metadatas.isEmpty) 0
+      if(metadatas.isEmpty) -1 // Corner case when the first segment's base offset is 1 and contains only 1 record.
       else {
         metadatas.asScala.max(new Ordering[RemoteLogSegmentMetadata]() {
           override def compare(x: RemoteLogSegmentMetadata,
@@ -325,7 +325,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
               case Found(x) => x
               case InsertionPoint(y) => y - 1
             }
-            if (index <= 0) {
+            if (index < 0) {
               debug(s"No segments found to be copied for partition $tp with read offset: $readOffset and active " +
                 s"baseoffset: $activeSegBaseOffset")
             } else {

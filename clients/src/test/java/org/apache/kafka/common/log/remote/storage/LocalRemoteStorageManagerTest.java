@@ -17,6 +17,7 @@
 package org.apache.kafka.common.log.remote.storage;
 
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.header.*;
 import org.apache.kafka.common.record.*;
 import org.junit.*;
 import org.junit.rules.TestName;
@@ -282,9 +283,17 @@ public final class LocalRemoteStorageManagerTest {
                         Paths.get(segmentDir.getAbsolutePath(), offset + ".log"),
                         StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
 
-                final SimpleRecord[] records = Arrays.stream(data).map(SimpleRecord::new).toArray(SimpleRecord[]::new);
+                final ByteBuffer buffer = ByteBuffer.allocate(128);
+                final byte magic = RecordBatch.MAGIC_VALUE_V2;
 
-                MemoryRecords.withRecords(CompressionType.NONE, records).writeFullyTo(channel);
+                MemoryRecordsBuilder builder = MemoryRecords.builder
+                        (buffer, magic, CompressionType.NONE, TimestampType.CREATE_TIME, baseOffset);
+
+                for (byte[] value : data) {
+                    builder.append(System.currentTimeMillis(), null, value);
+                }
+
+                builder.build().writeFullyTo(channel);
                 channel.force(true);
 
                 final File segment = new File(segmentDir, offset + ".log");

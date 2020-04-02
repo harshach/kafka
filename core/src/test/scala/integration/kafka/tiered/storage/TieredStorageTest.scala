@@ -1,0 +1,66 @@
+package integration.kafka.tiered.storage
+
+import java.nio.ByteBuffer
+import java.util
+import java.util.Properties
+import java.util.concurrent.TimeUnit
+
+import kafka.api.IntegrationTestHarness
+import kafka.server.KafkaConfig
+import kafka.utils.TestUtils
+import kafka.utils.TestUtils.createBrokerConfigs
+import org.apache.kafka.clients.producer.ProducerRecord
+import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.config.TopicConfig
+import org.apache.kafka.common.log.remote.storage.LocalRemoteStorage.{DELETE_ON_CLOSE_PROP, STORAGE_ID_PROP}
+import org.apache.kafka.common.log.remote.storage.LocalRemoteStorageWaiter.newWaiter
+import org.apache.kafka.common.log.remote.storage.{LocalRemoteStorage, LocalRemoteStorageSnapshot, RLMMWithTopicStorage}
+import org.apache.kafka.common.serialization.StringSerializer
+import org.junit.Assert.assertEquals
+import org.junit.{Assert, Test}
+
+class TieredStorageTest extends IntegrationTestHarness {
+
+  override def generateConfigs: Seq[KafkaConfig] = {
+    val overridingProps = new Properties()
+    overridingProps.setProperty(KafkaConfig.RemoteLogStorageEnableProp, true.toString)
+    overridingProps.setProperty(KafkaConfig.RemoteLogStorageManagerProp, classOf[LocalRemoteStorage].getName)
+    overridingProps.setProperty(KafkaConfig.RemoteLogMetadataManagerProp, classOf[RLMMWithTopicStorage].getName)
+    overridingProps.setProperty(KafkaConfig.RemoteLogManagerTaskIntervalMsProp, 1000.toString)
+    overridingProps.setProperty(KafkaConfig.RemoteLogMetadataTopicReplicationFactorProp, 1.toString)
+
+    overridingProps.setProperty(STORAGE_ID_PROP, "phoque")
+    overridingProps.setProperty(DELETE_ON_CLOSE_PROP, "true")
+
+    createBrokerConfigs(numConfigs = 1, zkConnect).map(KafkaConfig.fromProps(_, overridingProps))
+  }
+
+  override protected def brokerCount: Int = 1
+
+  @Test
+  def test(): Unit = {
+    val topicProps = new Properties()
+    topicProps.setProperty(TopicConfig.SEGMENT_BYTES_CONFIG, 69.toString)
+
+    TestUtils.createTopic(zkClient, "phoque", brokerCount, brokerCount, servers, topicProps)
+
+    val remoteStorage = serverForId(0).get.remoteLogManager.get.storageManager().asInstanceOf[LocalRemoteStorage]
+    val tp = new TopicPartition("phoque", 0)
+
+    val waiter = newWaiter().addSegmentsToWaitFor(tp, 1).fromStorage(remoteStorage)
+
+    val producer = createProducer(new StringSerializer, new StringSerializer)
+    producer.send(new ProducerRecord[String, String]("phoque", "a")).get()
+    producer.send(new ProducerRecord[String, String]("phoque", "b")).get()
+
+    waiter.waitForSegments(5, TimeUnit.SECONDS)
+
+    val snapshot = LocalRemoteStorageSnapshot.takeSnapshot(remoteStorage)
+
+    assertEquals(util.Arrays.asList(tp), snapshot.getTopicPartitions)
+
+    val records = snapshot.getRecords
+    assertEquals(1, records.size())
+    Assert.assertEquals(util.Arrays.asList(ByteBuffer.wrap("a".getBytes)), records.values().iterator().next())
+  }
+}
