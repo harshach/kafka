@@ -5,9 +5,9 @@ import org.apache.kafka.common.record.*;
 
 /**
  * Used to walk through a local remote storage, providing a support to tests to explore the content of the storage.
- * This interface is to be used with the {@link LocalRemoteStorage} and is intended for tests only.
+ * This interface is to be used with the {@link LocalTieredStorage} and is intended for tests only.
  */
-public interface LocalRemoteStorageTraverser {
+public interface LocalTieredStorageTraverser {
 
     /**
      * Called when a new topic-partition stored on the remote storage is discovered.
@@ -17,7 +17,7 @@ public interface LocalRemoteStorageTraverser {
 
     /**
      * Called when a new segment is discovered for a given topic-partition.
-     * This method can only be called after {@link LocalRemoteStorageTraverser#visitTopicPartition(TopicPartition)}
+     * This method can only be called after {@link LocalTieredStorageTraverser#visitTopicPartition(TopicPartition)}
      * for the topic-partition the segment belongs to.
      *
      * @param segmentId The remote id of the segment discovered.
@@ -26,7 +26,7 @@ public interface LocalRemoteStorageTraverser {
 
     /**
      * Called for each record read on a given segment.
-     * This method can only be called after {@link LocalRemoteStorageTraverser#visitRecord(RemoteLogSegmentId, Record)}
+     * This method can only be called after {@link LocalTieredStorageTraverser#visitRecord(RemoteLogSegmentId, Record)}
      * for the segment the record is read from.
      *
      * @param segmentId The remote id of the segment the record is read from.

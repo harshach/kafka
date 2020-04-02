@@ -18,7 +18,7 @@ package org.apache.kafka.common.log.remote.storage;
 
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.InvalidConfigurationException;
-import org.apache.kafka.common.log.remote.storage.LocalRemoteStorageListener.*;
+import org.apache.kafka.common.log.remote.storage.LocalTieredStorageListener.*;
 import org.apache.kafka.common.record.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,7 +48,7 @@ import java.util.concurrent.*;
  * tests, the scope of a storage implemented by this class, and identified via the storage ID provided to the
  * constructor, should be limited to a test or well-defined self-contained use-case.
  */
-public final class LocalRemoteStorage implements RemoteStorageManager {
+public final class LocalTieredStorage implements RemoteStorageManager {
     public static final String STORAGE_ID_PROP = "remote.log.storage.local.id";
     public static final String DELETE_ON_CLOSE_PROP = "remote.log.storage.local.delete.on.close";
     public static final String TRANSFERER_CLASS_PROP = "remote.log.storage.local.transferer";
@@ -56,7 +56,7 @@ public final class LocalRemoteStorage implements RemoteStorageManager {
 
     private static final String ROOT_STORAGES_DIR_NAME = "remote-storage";
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(LocalRemoteStorage.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(LocalTieredStorage.class);
 
     /**
      * The ID assigned to this storage and used for reference. Using descriptive, unique ID is
@@ -84,9 +84,10 @@ public final class LocalRemoteStorage implements RemoteStorageManager {
     private volatile Transferer transferer = (from, to) -> Files.copy(from.toPath(), to.toPath());
 
     /**
-     * Used to notify
+     * Used to notify users of this storage of internal updates - new topic-partition recorded (upon directory
+     * creation) and segment file written (upon segment file write(2)).
      */
-    private final CompositeLocalRemoteStorageListener storageListener = new CompositeLocalRemoteStorageListener();
+    private final CompositeLocalTieredStorageListener storageListener = new CompositeLocalTieredStorageListener();
 
     /**
      * Walk through this storage and notify the traverser of the topic-partitions, segments and records stored.
@@ -106,7 +107,7 @@ public final class LocalRemoteStorage implements RemoteStorageManager {
      * @param traverser User-specified object to which this storage communicates the topic-partitions, segments
      *                  and records as they are discovered.
      */
-    public void traverse(final LocalRemoteStorageTraverser traverser) {
+    public void traverse(final LocalTieredStorageTraverser traverser) {
         Objects.requireNonNull(traverser);
 
         final File[] topicPartitionDirectories = storageDirectory.listFiles();
@@ -144,7 +145,7 @@ public final class LocalRemoteStorage implements RemoteStorageManager {
                 });
     }
 
-    public void addListener(final LocalRemoteStorageListener listener) {
+    public void addListener(final LocalTieredStorageListener listener) {
         this.storageListener.add(listener);
     }
 
@@ -425,7 +426,7 @@ public final class LocalRemoteStorage implements RemoteStorageManager {
             return false;
         }
 
-        return files.stream().map(LocalRemoteStorage::deleteQuietly).reduce(true, Boolean::logicalAnd);
+        return files.stream().map(LocalTieredStorage::deleteQuietly).reduce(true, Boolean::logicalAnd);
     }
 
     private static boolean deleteQuietly(final File file) {
