@@ -506,13 +506,6 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
         this.adminClient = AdminClient.create(props);
     }
 
-    private String createClientId(String suffix) {
-        // Added hasCode as part of client-id here to differentiate between multiple runs of broker.
-        // Broker epoch could not be used as it is created only after RemoteLogManager and ReplicaManager are
-        // created.
-        return REMOTE_LOG_METADATA_CLIENT_PREFIX + "_" + suffix + configs.get("broker.id") + "_" + hashCode();
-    }
-
     private void createProducer(final Optional<String> bootstrapServer) {
         Map<String, Object> props = new HashMap<>(configs);
 
@@ -527,6 +520,13 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
 
         props.put(ProducerConfig.RETRIES_CONFIG, Integer.MAX_VALUE);
         props.put(ProducerConfig.RETRY_BACKOFF_MS_CONFIG, 5000);
+    }
+
+    private String createClientId(String suffix) {
+        // Added hasCode as part of client-id here to differentiate between multiple runs of broker.
+        // Broker epoch could not be used as it is created only after RemoteLogManager and ReplicaManager are
+        // created.
+        return REMOTE_LOG_METADATA_CLIENT_PREFIX + "_" + suffix + configs.get("broker.id") + "_" + hashCode();
     }
 
     private void createConsumer(final Optional<String> bootstrapServer) {
@@ -775,7 +775,9 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
         public boolean assignedPartition(int partition) {
             return assignedMetaPartitions.contains(partition);
         }
+
     }
+
 
     public static class RLMMSerializer implements Serializer<RemoteLogSegmentMetadata> {
 
