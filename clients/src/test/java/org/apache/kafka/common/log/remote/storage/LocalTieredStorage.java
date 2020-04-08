@@ -87,10 +87,10 @@ public final class LocalTieredStorage implements RemoteStorageManager {
      * Used to notify users of this storage of internal updates - new topic-partition recorded (upon directory
      * creation) and segment file written (upon segment file write(2)).
      */
-    private final CompositeLocalTieredStorageListener storageListener = new CompositeLocalTieredStorageListener();
+    private final LocalTieredStorageListeners storageListener = new LocalTieredStorageListeners();
 
     /**
-     * Walk through this storage and notify the traverser of the topic-partitions, segments and records stored.
+     * Walks through this storage and notify the traverser of every topic-partition, segment and record discovered.
      *
      * - The order of traversal of the topic-partition is not specified.
      * - The order of traversal of the segments within a topic-partition is in ascending order
@@ -99,13 +99,14 @@ public final class LocalTieredStorage implements RemoteStorageManager {
      *   order of these records in the original segment from which the segment in this storage
      *   was transferred from.
      *
-     * This storage may change while being traversed topic-partitions, segments and records are communicated
-     * to the traverser. There is no guarantee updates to the storage which happens during traversal will be
-     * communicated to the traverser. Especially, in case of concurrent read and write/delete to a
-     * topic-partition, a segment or a record, the behaviour depends on the underlying file system.
+     * This method is NOT an atomic operation w.r.t the local tiered storage. This storage may change while
+     * being traversed topic-partitions, segments and records are communicated to the traverser. There is
+     * no guarantee updates to the storage which happens during traversal will be communicated to the traverser.
+     * Especially, in case of concurrent read and write/delete to a topic-partition, a segment or a record,
+     * the behaviour depends on the underlying file system.
      *
-     * @param traverser User-specified object to which this storage communicates the topic-partitions, segments
-     *                  and records as they are discovered.
+     * @param traverser User-specified object to which this storage communicates the topic-partitions,
+     *                  segments and records as they are discovered.
      */
     public void traverse(final LocalTieredStorageTraverser traverser) {
         Objects.requireNonNull(traverser);
@@ -246,6 +247,8 @@ public final class LocalTieredStorage implements RemoteStorageManager {
             final InputStream inputStream = newInputStream(remote.logSegment.toPath(), READ);
             inputStream.skip(startPosition);
 
+            //storageListener.onSegmentFetched();
+
             // endPosition is ignored at this stage. A wrapper around the file input stream can implement
             // the upper bound on the stream.
 
@@ -336,7 +339,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
         if (storageDirectory == null) {
             throw new RemoteStorageException(
                     "No storage directory was defined for the local remote storage. Make sure " +
-                            "the instance was configured correctly via the configure(configs: util.Map[String, _]) method.");
+                            "the instance was configured correctly via the configure() method.");
         }
 
         try {
@@ -412,7 +415,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
 
         if (!existed) {
             LOGGER.warn("Creating directory: " + directory.getAbsolutePath());
-            directory.mkdirs(); // TODO
+            directory.mkdirs();
         }
 
         return new Directory(directory, existed);
