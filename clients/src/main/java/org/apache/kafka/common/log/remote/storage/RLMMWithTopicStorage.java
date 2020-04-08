@@ -254,7 +254,7 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
         log.info("Received leadership notifications with leader partitions {} and follower partitions {}",
                 leaderPartitions, followerPartitions);
 
-        initialize();
+        initialize(Optional.empty());
 
         final HashSet<TopicPartition> allPartitions = new HashSet<>(leaderPartitions);
         allPartitions.addAll(followerPartitions);
@@ -270,18 +270,16 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
     @Override
     public void onServerStarted(final String serverEndpoint) {
         //create clients
-        createAdminClient(Optional.of(serverEndpoint));
-        createProducer(Optional.of(serverEndpoint));
-        createConsumer(Optional.of(serverEndpoint));
+        initialize(Optional.of(serverEndpoint));
     }
 
-    private synchronized void initialize() {
+    private synchronized void initialize(Optional<String> serverEnpoint) {
         if (!initialized) {
             log.info("Initializing all the clients and resources.");
             //create clients
-            createAdminClient(Optional.empty());
-            createProducer(Optional.empty());
-            createConsumer(Optional.empty());
+            createAdminClient(serverEnpoint);
+            createProducer(serverEnpoint);
+            createConsumer(serverEnpoint);
 
             // todo-tier use rocksdb
             //load the stored data
@@ -496,11 +494,54 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
         return Math.abs(tp.toString().hashCode()) % noOfMetadataTopicPartitions;
     }
 
+    private void createAdminClient(final Optional<String> bootstrapServer) {
+        Map<String, Object> props = new HashMap<>(configs);
+
+        bootstrapServer.ifPresent(prop -> props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, prop));
+
+        props.put(ProducerConfig.CLIENT_ID_CONFIG, createClientId("admin"));
+        props.put(ProducerConfig.RETRIES_CONFIG, Integer.MAX_VALUE);
+        props.put(ProducerConfig.RETRY_BACKOFF_MS_CONFIG, 5000);
+
+        this.adminClient = AdminClient.create(props);
+    }
+
     private String createClientId(String suffix) {
         // Added hasCode as part of client-id here to differentiate between multiple runs of broker.
         // Broker epoch could not be used as it is created only after RemoteLogManager and ReplicaManager are
         // created.
         return REMOTE_LOG_METADATA_CLIENT_PREFIX + "_" + suffix + configs.get("broker.id") + "_" + hashCode();
+    }
+
+    private void createProducer(final Optional<String> bootstrapServer) {
+        Map<String, Object> props = new HashMap<>(configs);
+
+        bootstrapServer.ifPresent(prop -> props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, prop));
+
+        props.put(ProducerConfig.CLIENT_ID_CONFIG, createClientId("producer"));
+        props.put(KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer");
+        props.put(VALUE_SERIALIZER_CLASS_CONFIG, RLMMSerializer.class.getName());
+        props.put(ProducerConfig.ACKS_CONFIG, "all");
+        props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 1);
+        props.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, Integer.MAX_VALUE);
+
+        props.put(ProducerConfig.RETRIES_CONFIG, Integer.MAX_VALUE);
+        props.put(ProducerConfig.RETRY_BACKOFF_MS_CONFIG, 5000);
+    }
+
+    private void createConsumer(final Optional<String> bootstrapServer) {
+        Map<String, Object> props = new HashMap<>(configs);
+
+        bootstrapServer.ifPresent(prop -> props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, prop));
+
+        props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrapServer);
+        props.put(CommonClientConfigs.CLIENT_ID_CONFIG, createClientId("consumer"));
+        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        props.put(KEY_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringDeserializer");
+        props.put(VALUE_DESERIALIZER_CLASS_CONFIG, RLMMDeserializer.class.getName());
+
+        this.consumer = new KafkaConsumer<>(props);
     }
 
     private static class ConsumerTask implements Runnable, Closeable {
@@ -720,10 +761,6 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
             syncCommittedDataAndOffsets(true);
         }
 
-        public boolean assignedPartition(int partition) {
-            return assignedMetaPartitions.contains(partition);
-        }
-
         private TopicPartition buildTopicPartition(String key) {
             int index = key.lastIndexOf("-");
             if (index < 0) {
@@ -734,49 +771,10 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
             int partition = Integer.parseInt(key.substring(index + 1));
             return new TopicPartition(topic, partition);
         }
-    }
 
-    private void createAdminClient(final Optional<String> bootstrapServer) {
-        Map<String, Object> props = new HashMap<>(configs);
-
-        bootstrapServer.ifPresent(prop -> props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, prop));
-
-        props.put(ProducerConfig.CLIENT_ID_CONFIG, createClientId("admin"));
-        props.put(ProducerConfig.RETRIES_CONFIG, Integer.MAX_VALUE);
-        props.put(ProducerConfig.RETRY_BACKOFF_MS_CONFIG, 5000);
-
-        this.adminClient = AdminClient.create(props);
-    }
-
-    private void createProducer(final Optional<String> bootstrapServer) {
-        Map<String, Object> props = new HashMap<>(configs);
-
-        bootstrapServer.ifPresent(prop -> props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, prop));
-
-        props.put(ProducerConfig.CLIENT_ID_CONFIG, createClientId("producer"));
-        props.put(KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer");
-        props.put(VALUE_SERIALIZER_CLASS_CONFIG, RLMMSerializer.class.getName());
-        props.put(ProducerConfig.ACKS_CONFIG, "all");
-        props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 1);
-        props.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, Integer.MAX_VALUE);
-
-        props.put(ProducerConfig.RETRIES_CONFIG, Integer.MAX_VALUE);
-        props.put(ProducerConfig.RETRY_BACKOFF_MS_CONFIG, 5000);
-    }
-
-    private void createConsumer(final Optional<String> bootstrapServer) {
-        Map<String, Object> props = new HashMap<>(configs);
-
-        bootstrapServer.ifPresent(prop -> props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, prop));
-
-        props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrapServer);
-        props.put(CommonClientConfigs.CLIENT_ID_CONFIG, createClientId("consumer"));
-        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
-        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        props.put(KEY_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringDeserializer");
-        props.put(VALUE_DESERIALIZER_CLASS_CONFIG, RLMMDeserializer.class.getName());
-
-        this.consumer = new KafkaConsumer<>(props);
+        public boolean assignedPartition(int partition) {
+            return assignedMetaPartitions.contains(partition);
+        }
     }
 
     public static class RLMMSerializer implements Serializer<RemoteLogSegmentMetadata> {
