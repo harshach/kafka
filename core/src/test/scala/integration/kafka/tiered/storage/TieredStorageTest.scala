@@ -67,7 +67,7 @@ class TieredStorageTest extends IntegrationTestHarness {
 
     assertEquals(util.Arrays.asList(tp), snapshot.getTopicPartitions)
 
-    val records = snapshot.getRecords
+    val records = snapshot.getRemoteLogSegmentFilesets
     assertEquals(1, records.size())
 
     Assert.assertEquals(util.Arrays.asList(ByteBuffer.wrap("a".getBytes)), records.values().iterator().next())

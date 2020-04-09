@@ -19,7 +19,6 @@ package org.apache.kafka.common.log.remote.storage;
 import org.apache.kafka.common.*;
 import org.slf4j.*;
 
-import java.io.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
@@ -66,7 +65,8 @@ public final class LocalTieredStorageWaiter {
         }
 
         @Override
-        public void onSegmentCreated(RemoteLogSegmentId id, File segmentFile) {
+        public void onSegmentOffloaded(final RemoteLogSegmentFileset remoteFileset) {
+            final RemoteLogSegmentId id = remoteFileset.getRemoteLogSegmentId();
             LOGGER.debug("Segment uploaded to remote storage: {}", id);
 
             final AtomicInteger remaining = remainingSegments.get(id.topicPartition());

@@ -28,4 +28,8 @@ public class RemoteResourceNotFoundException extends RemoteStorageException {
         super(format("One of the resource associated to the remote log segment was not found. " +
                 "ID: %s Resource name: %s", id.id(), resourceName));
     }
+
+    public RemoteResourceNotFoundException(final Throwable cause) {
+        super("One of the requested remote resource was not found", cause);
+    }
 }

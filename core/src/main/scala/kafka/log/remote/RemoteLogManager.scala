@@ -189,7 +189,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
   }
 
   def onServerStarted(serverEndpoint: String): Unit = {
-    remoteLogMetadataManager.onServerStarted(serverEndpoint)
+    remoteLogMetadataManager.onServerStarted(Optional.of(serverEndpoint))
   }
 
   def storageManager(): RemoteStorageManager = {

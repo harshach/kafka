@@ -17,9 +17,9 @@
 package org.apache.kafka.common.log.remote.storage;
 
 import org.apache.kafka.common.*;
-import org.apache.kafka.common.record.*;
+import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset.*;
 
-import java.nio.*;
+import java.io.*;
 import java.util.*;
 
 import static java.lang.String.*;
@@ -39,8 +39,17 @@ public final class LocalTieredStorageSnapshot {
         return Collections.unmodifiableList(snapshot.topicPartitions);
     }
 
-    public Map<RemoteLogSegmentId, List<ByteBuffer>> getRecords() {
+    public Map<RemoteLogSegmentId, RemoteLogSegmentFileset> getFilesets() {
         return Collections.unmodifiableMap(snapshot.records);
+    }
+
+    public File getFile(final RemoteLogSegmentId id, final RemoteLogSegmentFileType type) {
+        final RemoteLogSegmentFileset fileset = snapshot.records.get(id);
+        if (fileset == null) {
+            throw new IllegalArgumentException(String.format("No file found for id: %s", id));
+        }
+
+        return fileset.getFile(type);
     }
 
     private final Snapshot snapshot;
@@ -50,7 +59,7 @@ public final class LocalTieredStorageSnapshot {
     }
 
     private static final class Snapshot implements LocalTieredStorageTraverser {
-        private final Map<RemoteLogSegmentId, List<ByteBuffer>> records = new HashMap<>();
+        private final Map<RemoteLogSegmentId, RemoteLogSegmentFileset> records = new HashMap<>();
         private final List<TopicPartition> topicPartitions = new ArrayList<>();
 
         @Override
@@ -63,23 +72,12 @@ public final class LocalTieredStorageSnapshot {
         }
 
         @Override
-        public void visitSegment(RemoteLogSegmentId segmentId) {
-            if (records.containsKey(segmentId)) {
-                throw new IllegalStateException(format("Segment with id %s was already visited", segmentId));
+        public void visitSegment(RemoteLogSegmentFileset fileset) {
+            if (records.containsKey(fileset)) {
+                throw new IllegalStateException(format("Segment with id %s was already visited", fileset));
             }
 
-            records.put(segmentId, new ArrayList<>());
-        }
-
-        @Override
-        public void visitRecord(RemoteLogSegmentId segmentId, Record record) {
-            final List<ByteBuffer> segmentRecords = records.get(segmentId);
-
-            if (segmentRecords == null) {
-                throw new IllegalStateException(format("Segment with id %s was not visited", segmentId));
-            }
-
-            segmentRecords.add(record.value());
+            records.put(fileset.getRemoteLogSegmentId(), fileset);
         }
     }
 }

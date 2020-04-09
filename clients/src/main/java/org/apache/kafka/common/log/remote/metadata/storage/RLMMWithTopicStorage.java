@@ -240,7 +240,7 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
         log.info("Received leadership notifications with leader partitions {} and follower partitions {}",
                 leaderPartitions, followerPartitions);
 
-        initialize();
+        initialize(Optional.empty());
 
         final HashSet<TopicPartition> allPartitions = new HashSet<>(leaderPartitions);
         allPartitions.addAll(followerPartitions);
@@ -254,17 +254,17 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
     }
 
     @Override
-    public void onServerStarted(String endpoint) {
-        initialize();
+    public void onServerStarted(final Optional<String> endpoint) {
+        initialize(endpoint);
     }
 
-    private synchronized void initialize() {
+    private synchronized void initialize(final Optional<String> endpoint) {
         if (!initialized) {
             log.info("Initializing all the clients and resources.");
             //create clients
-            createAdminClient();
-            createProducer();
-            createConsumer();
+            createAdminClient(endpoint);
+            createProducer(endpoint);
+            createConsumer(endpoint);
 
             // todo-tier use rocksdb
             //load the stored data
@@ -356,8 +356,11 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
         return Math.abs(tp.toString().hashCode()) % noOfMetadataTopicPartitions;
     }
 
-    private void createAdminClient() {
+    private void createAdminClient(final Optional<String> serverEndpoint) {
         Map<String, Object> props = new HashMap<>(configs);
+
+        serverEndpoint.ifPresent(prop -> props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, prop));
+
         props.put(ProducerConfig.CLIENT_ID_CONFIG, createClientId("admin"));
         props.put(ProducerConfig.RETRIES_CONFIG, Integer.MAX_VALUE);
         props.put(ProducerConfig.RETRY_BACKOFF_MS_CONFIG, 5000);
@@ -365,8 +368,10 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
         this.adminClient = AdminClient.create(props);
     }
 
-    private void createProducer() {
+    private void createProducer(final Optional<String> serverEndpoint) {
         Map<String, Object> props = new HashMap<>(configs);
+
+        serverEndpoint.ifPresent(prop -> props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, prop));
 
         props.put(ProducerConfig.CLIENT_ID_CONFIG, createClientId("producer"));
 
@@ -389,8 +394,10 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
         return REMOTE_LOG_METADATA_CLIENT_PREFIX + "_" + suffix + configs.get("broker.id") + "_" + hashCode();
     }
 
-    private void createConsumer() {
+    private void createConsumer(final Optional<String> serverEndpoint) {
         Map<String, Object> props = new HashMap<>(configs);
+
+        serverEndpoint.ifPresent(prop -> props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, prop));
 
         props.put(CommonClientConfigs.CLIENT_ID_CONFIG, createClientId("consumer"));
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);

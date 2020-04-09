@@ -19,7 +19,6 @@ package org.apache.kafka.common.log.remote.storage;
 import org.apache.kafka.common.*;
 import org.slf4j.*;
 
-import java.io.*;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -39,13 +38,8 @@ public interface LocalTieredStorageListener {
 
     /**
      * Called when a segment has been copied to the local remote storage.
-     *
-     * @param id The remote id assigned to the segment.
-     * @param segmentFile The segment's file in the remote storage.
      */
-    void onSegmentCreated(RemoteLogSegmentId id, File segmentFile);
-
-   // void onSegmentFetched(RemoteLogSegmentMetadata metadata);
+    void onSegmentOffloaded(RemoteLogSegmentFileset remoteFileset);
 
     /**
      * Delegates to a list of listeners in insertion order.
@@ -72,10 +66,10 @@ public interface LocalTieredStorageListener {
         }
 
         @Override
-        public void onSegmentCreated(final RemoteLogSegmentId id, final File segmentFile) {
+        public void onSegmentOffloaded(RemoteLogSegmentFileset remoteFileset) {
             for (final LocalTieredStorageListener listener: listeners) {
                 try {
-                    listener.onSegmentCreated(id, segmentFile);
+                    listener.onSegmentOffloaded(remoteFileset);
 
                 } catch (Exception e) {
                     LOGGER.error("Caught failure from listener", e);

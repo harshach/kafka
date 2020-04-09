@@ -17,7 +17,6 @@
 package org.apache.kafka.common.log.remote.storage;
 
 import org.apache.kafka.common.*;
-import org.apache.kafka.common.record.*;
 
 /**
  * Used to walk through a local remote storage, providing a support to tests to explore the content of the storage.
@@ -35,19 +34,7 @@ public interface LocalTieredStorageTraverser {
      * Called when a new segment is discovered for a given topic-partition.
      * This method can only be called after {@link LocalTieredStorageTraverser#visitTopicPartition(TopicPartition)}
      * for the topic-partition the segment belongs to.
-     *
-     * @param segmentId The remote id of the segment discovered.
      */
-    void visitSegment(RemoteLogSegmentId segmentId);
-
-    /**
-     * Called for each record read on a given segment.
-     * This method can only be called after {@link LocalTieredStorageTraverser#visitRecord(RemoteLogSegmentId, Record)}
-     * for the segment the record is read from.
-     *
-     * @param segmentId The remote id of the segment the record is read from.
-     * @param record Record read from the segment.
-     */
-    void visitRecord(RemoteLogSegmentId segmentId, Record record);
+    void visitSegment(RemoteLogSegmentFileset fileset);
 
 }

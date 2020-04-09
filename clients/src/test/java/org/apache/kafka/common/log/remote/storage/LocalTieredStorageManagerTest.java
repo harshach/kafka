@@ -26,6 +26,7 @@ import static java.nio.ByteBuffer.*;
 import static java.util.Arrays.*;
 import static java.util.Objects.*;
 import static org.apache.kafka.common.log.remote.storage.LocalTieredStorageSnapshot.*;
+import static org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset.RemoteLogSegmentFileType.*;
 import static org.junit.Assert.*;
 
 import java.io.*;
@@ -164,19 +165,24 @@ public final class LocalTieredStorageManagerTest {
             }
 
             @Override
-            public void visitRecord(RemoteLogSegmentId segmentId, Record record) {
-                assertEquals(wrap(bytes), record.value());
-            }
+            public void visitSegment(RemoteLogSegmentFileset fileset) {
+                assertEquals(id, fileset.getRemoteLogSegmentId());
 
-            @Override
-            public void visitSegment(RemoteLogSegmentId segmentId) {
-                assertEquals(id, segmentId);
+                try {
+                    final FileRecords records = FileRecords.open(fileset.getFile(SEGMENT));
+                    final Iterator<Record> it = records.records().iterator();
+
+                    assertEquals(wrap(bytes), it.next().value());
+
+                } catch (IOException e) {
+                    throw new AssertionError(e);
+                }
             }
         });
     }
 
     @Test
-    public void traverseMultipleOffloadedRecordsInOneSegment() throws RemoteStorageException {
+    public void traverseMultipleOffloadedRecordsInOneSegment() throws RemoteStorageException, IOException {
         final byte[] record1 = new byte[]{0, 1, 2};
         final byte[] record2 = new byte[]{3, 4, 5};
         final RemoteLogSegmentId id = newRemoteLogSegmentId();
@@ -185,15 +191,12 @@ public final class LocalTieredStorageManagerTest {
 
         final LocalTieredStorageSnapshot snapshot = takeSnapshot(remoteStorage);
 
-        final Map<RemoteLogSegmentId, List<ByteBuffer>> expected = new HashMap<>();
-        expected.put(id, asList(wrap(record1), wrap(record2)));
-
         assertEquals(asList(topicPartition), snapshot.getTopicPartitions());
-        assertEquals(expected, snapshot.getRecords());
+        assertEquals(asList(wrap(record1), wrap(record2)), extractRecordsValue(snapshot, id));
     }
 
     @Test
-    public void traverseMultipleOffloadedRecordsInTwoSegments() throws RemoteStorageException {
+    public void traverseMultipleOffloadedRecordsInTwoSegments() throws RemoteStorageException, IOException {
         final byte[] record1a = new byte[]{0, 1, 2};
         final byte[] record2a = new byte[]{3, 4, 5};
         final byte[] record1b = new byte[]{6, 7, 8};
@@ -211,8 +214,12 @@ public final class LocalTieredStorageManagerTest {
         expected.put(idA, asList(wrap(record1a), wrap(record2a)));
         expected.put(idB, asList(wrap(record1b), wrap(record2b)));
 
+        final Map<RemoteLogSegmentId, List<ByteBuffer>> actual = new HashMap<>();
+        actual.put(idA, extractRecordsValue(snapshot, idA));
+        actual.put(idB, extractRecordsValue(snapshot, idB));
+
         assertEquals(asList(topicPartition), snapshot.getTopicPartitions());
-        assertEquals(expected, snapshot.getRecords());
+        assertEquals(expected, actual);
     }
 
     @Test
@@ -242,6 +249,20 @@ public final class LocalTieredStorageManagerTest {
         return new RemoteLogSegmentId(topicPartition, UUID.randomUUID());
     }
 
+    private static List<ByteBuffer> extractRecordsValue(
+            final LocalTieredStorageSnapshot snapshot,
+            final RemoteLogSegmentId id) throws IOException {
+
+        final FileRecords records = FileRecords.open(snapshot.getFile(id, SEGMENT));
+        final List<ByteBuffer> buffers = new ArrayList<>();
+
+        for (Record record: records.records()) {
+            buffers.add(record.value());
+        }
+
+        return buffers;
+    }
+
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd-HH:mm:ss");
 
     private String generateStorageId() {
@@ -265,8 +286,8 @@ public final class LocalTieredStorageManagerTest {
 
             return Arrays.asList(
                     Paths.get(rootPath, topicPartitionSubpath, uuid + "-segment").toString(),
-                    Paths.get(rootPath, topicPartitionSubpath, uuid + "-offset").toString(),
-                    Paths.get(rootPath, topicPartitionSubpath, uuid + "-time").toString()
+                    Paths.get(rootPath, topicPartitionSubpath, uuid + "-offset_index").toString(),
+                    Paths.get(rootPath, topicPartitionSubpath, uuid + "-time_index").toString()
             );
         }
 

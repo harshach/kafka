@@ -16,23 +16,20 @@
  */
 package org.apache.kafka.common.log.remote.storage;
 
-import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.InvalidConfigurationException;
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorageListener.*;
-import org.apache.kafka.common.record.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static java.lang.String.format;
 import static java.nio.file.Files.newInputStream;
 import static java.nio.file.StandardOpenOption.READ;
-import static java.util.Arrays.asList;
-import static java.util.Objects.requireNonNull;
+import static org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset.RemoteLogSegmentFileType.*;
+import static org.apache.kafka.common.log.remote.storage.RemoteTopicPartitionDirectory.*;
+import static org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset.*;
 
 
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.*;
@@ -87,7 +84,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
      * Used to notify users of this storage of internal updates - new topic-partition recorded (upon directory
      * creation) and segment file written (upon segment file write(2)).
      */
-    private final LocalTieredStorageListeners storageListener = new LocalTieredStorageListeners();
+    private final LocalTieredStorageListeners storageListeners = new LocalTieredStorageListeners();
 
     /**
      * Walks through this storage and notify the traverser of every topic-partition, segment and record discovered.
@@ -111,43 +108,13 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     public void traverse(final LocalTieredStorageTraverser traverser) {
         Objects.requireNonNull(traverser);
 
-        final File[] topicPartitionDirectories = storageDirectory.listFiles();
-
-        Arrays.stream(topicPartitionDirectories)
+        Arrays.stream(storageDirectory.listFiles())
                 .filter(File::isDirectory)
-                .map(directory -> {
-                    try {
-                        final TopicPartition topicPartition = extractTopicPartition(directory.getAbsolutePath());
-                        traverser.visitTopicPartition(topicPartition);
-                        return directory.listFiles();
-
-                    } catch (RemoteStorageException e) {
-                        throw new RuntimeException(
-                                format("Error reading topic-partition for directory %s", directory), e);
-                    }
-                })
-                .flatMap(Arrays::stream)
-                .filter(f -> f.getName().endsWith(RemoteLogSegmentFiles.SEGMENT_SUFFIX))
-                .sorted((f, g) -> f.lastModified() <= g.lastModified() ? -1 : 1)
-                .forEach(file -> {
-                    try {
-                        final RemoteLogSegmentId id = extractRemoteLogSegmentId(file.getAbsolutePath());
-                        traverser.visitSegment(id);
-
-                        final Records records = FileRecords.open(file);
-                        for (Record record : records.records()) {
-                            traverser.visitRecord(id, record);
-                        }
-
-                    } catch (IOException | RemoteStorageException e) {
-                        throw new RuntimeException(
-                                format("Error reading records for %s", file.getName()), e);
-                    }
-                });
+                .forEach(dir -> openTopicPartitionDirectory(dir.getName(), storageDirectory).traverse(traverser));
     }
 
     public void addListener(final LocalTieredStorageListener listener) {
-        this.storageListener.add(listener);
+        this.storageListeners.add(listener);
     }
 
     @Override
@@ -184,10 +151,14 @@ public final class LocalTieredStorage implements RemoteStorageManager {
             }
         }
 
-        Directory directory = openDirectory(ROOT_STORAGES_DIR_NAME + "/" + storageId, new File("."));
-        storageDirectory = directory.directory;
+        storageDirectory = new File(new File("."), ROOT_STORAGES_DIR_NAME + "/" + storageId);
+        final boolean existed = storageDirectory.exists();
 
-        if (directory.existed) {
+        if (!existed) {
+            LOGGER.info("Creating directory: " + storageDirectory.getAbsolutePath());
+            storageDirectory.mkdirs();
+
+        } else {
             LOGGER.warn(format("Remote storage with ID %s already exists on the file system. Any data already in " +
                     "the remote storage will not be deleted and may result in an inconsistent state and/or provide" +
                     "stale data.", storageId));
@@ -201,20 +172,21 @@ public final class LocalTieredStorage implements RemoteStorageManager {
             throws RemoteStorageException {
 
         return wrap(() -> {
-            final RemoteLogSegmentFiles remote = new RemoteLogSegmentFiles(id, false);
-            try {
-                final TopicPartition topicPartition = id.topicPartition();
+            final RemoteLogSegmentFileset remoteSegmentFileset = openFileset(storageDirectory, id);
 
-                if (!remote.partitionDirectory.existed) {
-                    storageListener.onTopicPartitionCreated(topicPartition);
+            try {
+                if (!remoteSegmentFileset.getPartitionDirectory().didExist()) {
+                    storageListeners.onTopicPartitionCreated(id.topicPartition());
                 }
 
                 LOGGER.info(format("Transferring log segment for topic=%s partition=%d from offset=%s",
-                        topicPartition.topic(),
-                        topicPartition.partition(),
+                        id.topicPartition().topic(),
+                        id.topicPartition().partition(),
                         data.logSegment().getName().split("\\.")[0]));
 
-                remote.copyAll(data);
+                remoteSegmentFileset.copy(transferer, data);
+
+                storageListeners.onSegmentOffloaded(remoteSegmentFileset);
 
             } catch (final Exception e) {
                 //
@@ -223,7 +195,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
                 // before the exception was hit. The exception is re-thrown as no remediation is expected in
                 // the current scope.
                 //
-                remote.deleteAll();
+                remoteSegmentFileset.delete();
                 throw e;
             }
 
@@ -241,11 +213,9 @@ public final class LocalTieredStorage implements RemoteStorageManager {
                     "End position cannot be less than startPosition", startPosition, endPosition);
         }
         return wrap(() -> {
-            final RemoteLogSegmentFiles remote = new RemoteLogSegmentFiles(metadata.remoteLogSegmentId(), true);
-            final InputStream inputStream = newInputStream(remote.logSegment.toPath(), READ);
+            final RemoteLogSegmentFileset fileset = openFileset(storageDirectory, metadata.remoteLogSegmentId());
+            final InputStream inputStream = newInputStream(fileset.getFile(SEGMENT).toPath(), READ);
             inputStream.skip(startPosition);
-
-            //storageListener.onSegmentFetched();
 
             // endPosition is ignored at this stage. A wrapper around the file input stream can implement
             // the upper bound on the stream.
@@ -257,16 +227,16 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     @Override
     public InputStream fetchOffsetIndex(final RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         return wrap(() -> {
-            final RemoteLogSegmentFiles remote = new RemoteLogSegmentFiles(metadata.remoteLogSegmentId(), true);
-            return newInputStream(remote.offsetIndex.toPath(), READ);
+            final RemoteLogSegmentFileset fileset = openFileset(storageDirectory, metadata.remoteLogSegmentId());
+            return newInputStream(fileset.getFile(OFFSET_INDEX).toPath(), READ);
         });
     }
 
     @Override
     public InputStream fetchTimestampIndex(final RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         return wrap(() -> {
-            final RemoteLogSegmentFiles remote = new RemoteLogSegmentFiles(metadata.remoteLogSegmentId(), true);
-            return newInputStream(remote.timeIndex.toPath(), READ);
+            final RemoteLogSegmentFileset fileset = openFileset(storageDirectory, metadata.remoteLogSegmentId());
+            return newInputStream(fileset.getFile(TIME_INDEX).toPath(), READ);
         });
     }
 
@@ -274,8 +244,8 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     public void deleteLogSegment(final RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         wrap(() -> {
             if (deleteEnabled) {
-                final RemoteLogSegmentFiles remote = new RemoteLogSegmentFiles(metadata.remoteLogSegmentId(), true);
-                if (!remote.deleteAll()) {
+                final RemoteLogSegmentFileset remote = openFileset(storageDirectory, metadata.remoteLogSegmentId());
+                if (!remote.delete()) {
                     throw new RemoteStorageException("Failed to delete remote log segment with id:" +
                             metadata.remoteLogSegmentId());
                 }
@@ -300,22 +270,15 @@ public final class LocalTieredStorage implements RemoteStorageManager {
                     // method quiet.
                     //
                     return;
-
                 }
 
-                final boolean success = Arrays.stream(files).map(topicPartitionDirectory -> {
-                    //
-                    // The topic-partition directory is deleted only if all files inside it have been deleted
-                    // successfully thanks to the short-circuit operand. Yes, this is bad to rely on that to
-                    // drive the execution flow.
-                    //
-                    return deleteFilesOnly(asList(topicPartitionDirectory.listFiles()))
-                            && deleteQuietly(topicPartitionDirectory);
-
-                }).reduce(true, Boolean::logicalAnd);
+                final boolean success = Arrays.stream(files)
+                        .map(dir -> openTopicPartitionDirectory(dir.getName(), storageDirectory))
+                        .map(RemoteTopicPartitionDirectory::delete)
+                        .reduce(true, Boolean::logicalAnd);
 
                 if (success) {
-                    deleteQuietly(storageDirectory);
+                    storageDirectory.delete();
                 }
 
                 File root = new File(ROOT_STORAGES_DIR_NAME);
@@ -346,158 +309,18 @@ public final class LocalTieredStorage implements RemoteStorageManager {
         } catch (final RemoteStorageException rse) {
             throw rse;
 
-        } catch (final Exception e) {
+        } catch (final FileNotFoundException | NoSuchFileException e) {
+            throw new RemoteResourceNotFoundException(e);
+        }
+
+        catch (final Exception e) {
             throw new RemoteStorageException("Internal error in local remote storage", e);
         }
-    }
-
-    interface Transferer {
-
-        void transfer(File from, File to) throws IOException;
-
-    }
-
-    private final class RemoteLogSegmentFiles {
-        private static final String SEGMENT_SUFFIX = "segment";
-        private static final String OFFSET_SUFFIX = "offset";
-        private static final String TIME_SUFFIX = "time";
-
-        private final Directory partitionDirectory;
-        private final File logSegment;
-        private final File offsetIndex;
-        private final File timeIndex;
-
-        RemoteLogSegmentFiles(final RemoteLogSegmentId id, final boolean shouldExist) throws RemoteStorageException {
-            final TopicPartition tp = id.topicPartition();
-            this.partitionDirectory = openDirectory(format("%s-%d", tp.topic(), tp.partition()), storageDirectory);
-
-            this.logSegment = remoteFile(id, SEGMENT_SUFFIX, shouldExist);
-            this.offsetIndex = remoteFile(id, OFFSET_SUFFIX, shouldExist);
-            this.timeIndex = remoteFile(id, TIME_SUFFIX, shouldExist);
-        }
-
-        private void copyAll(final LogSegmentData data) throws IOException {
-            transferer.transfer(data.logSegment(), logSegment);
-            transferer.transfer(data.offsetIndex(), offsetIndex);
-            transferer.transfer(data.timeIndex(), timeIndex);
-        }
-
-        private boolean deleteAll() {
-            return deleteFilesOnly(asList(logSegment, offsetIndex, timeIndex))
-                    && deleteQuietly(partitionDirectory.directory);
-        }
-
-        private File remoteFile(final RemoteLogSegmentId id, final String suffix, final boolean shouldExist)
-                throws RemoteResourceNotFoundException {
-            File file = new File(partitionDirectory.directory, format("%s-%s", id.id().toString(), suffix));
-            if (!file.exists() && shouldExist) {
-                throw new RemoteResourceNotFoundException(id, format("File %s not found", file.getName()));
-            }
-            return file;
-        }
-    }
-
-    private static final class Directory {
-        private final File directory;
-        private final boolean existed;
-
-        Directory(final File directory, final boolean existed) {
-            this.directory = requireNonNull(directory);
-            this.existed = existed;
-        }
-    }
-
-    private static Directory openDirectory(final String relativePath, final File parent) {
-        final File directory = new File(parent, relativePath);
-        final boolean existed = directory.exists();
-
-        if (!existed) {
-            LOGGER.warn("Creating directory: " + directory.getAbsolutePath());
-            directory.mkdirs();
-        }
-
-        return new Directory(directory, existed);
-    }
-
-    private static boolean deleteFilesOnly(final List<File> files) {
-        final Optional<File> notAFile = files.stream().filter(f -> !f.isFile()).findAny();
-
-        if (notAFile.isPresent()) {
-            LOGGER.warn(format("Found unexpected directory %s. Will not delete.", notAFile.get().getAbsolutePath()));
-            return false;
-        }
-
-        return files.stream().map(LocalTieredStorage::deleteQuietly).reduce(true, Boolean::logicalAnd);
-    }
-
-    private static boolean deleteQuietly(final File file) {
-        try {
-            LOGGER.trace("Deleting " + file.getAbsolutePath());
-
-            return file.delete();
-        } catch (final Exception e) {
-            LOGGER.error(format("Encountered error while deleting %s", file.getAbsolutePath()));
-        }
-
-        return false;
     }
 
     private static void checkArgument(final boolean valid, final String message, final Object... args) {
         if (!valid) {
             throw new IllegalArgumentException(message + ": " + Arrays.toString(args));
         }
-    }
-
-    private static TopicPartition extractTopicPartition(final String path) throws RemoteStorageException {
-        final String[] subpaths = path.split(File.separator);
-        final String topicPartitionDirectory = subpaths[subpaths.length - 1];
-
-        final char topicParitionSeparator = '-';
-        final int separatorIndex = topicPartitionDirectory.lastIndexOf(topicParitionSeparator);
-
-        if (separatorIndex == -1) {
-            throw new RemoteStorageException(format(
-                    "Invalid format for topic-partition directory: %s", topicPartitionDirectory));
-        }
-
-        final String topic = topicPartitionDirectory.substring(0, separatorIndex);
-        final int partition;
-
-        try {
-            partition = Integer.parseInt(topicPartitionDirectory.substring(separatorIndex + 1));
-
-        } catch (NumberFormatException ex) {
-            throw new RemoteStorageException(format(
-                    "Invalid format for topic-partition directory: %s", topicPartitionDirectory), ex);
-        }
-
-        return new TopicPartition(topic, partition);
-    }
-
-    private static RemoteLogSegmentId extractRemoteLogSegmentId(final String path) throws RemoteStorageException {
-        final String[] subpaths = path.split(File.separator);
-        if (subpaths.length < 2) {
-            throw new RemoteStorageException(format(
-                    "Invalid path for file %s, expected at least 2 containing directories", path));
-        }
-
-        final TopicPartition topicPartition = extractTopicPartition(subpaths[subpaths.length - 2]);
-
-        final String filename = subpaths[subpaths.length - 1];
-        if (!filename.endsWith("-" + RemoteLogSegmentFiles.SEGMENT_SUFFIX)) {
-            throw new RemoteStorageException(format(
-                    "Invalid format for remote segment file: %s", filename));
-        }
-
-        final UUID uuid;
-        try {
-            uuid = UUID.fromString(filename.substring(0, filename.length() - 1 - RemoteLogSegmentFiles.SEGMENT_SUFFIX.length()));
-
-        } catch (RuntimeException ex) {
-            throw new RemoteStorageException(format(
-                    "Invalid format for remote segment file: %s", filename), ex);
-        }
-
-        return new RemoteLogSegmentId(topicPartition, uuid);
     }
 }
