@@ -35,15 +35,15 @@ import java.util.*;
 import java.util.concurrent.*;
 
 /**
- * An implementation of {@link RemoteStorageManager} which relies on the local file system to store offloaded
- * log segments and associated data.
+ * An implementation of {@link RemoteStorageManager} which relies on the local file system to store
+ * offloaded log segments and associated data.
  * <p>
  * Due to the consistency semantic of POSIX-compliant file systems, this remote storage provides strong
  * read-after-write consistency and a segment's data can be accessed once the copy to the storage succeeded.
  * <p>
  * In order to guarantee isolation, independence, reproducibility and consistency of unit and integration
- * tests, the scope of a storage implemented by this class, and identified via the storage ID provided to the
- * constructor, should be limited to a test or well-defined self-contained use-case.
+ * tests, the scope of a storage implemented by this class, and identified via the storage ID provided to
+ * the constructor, should be limited to a test or well-defined self-contained use-case.
  */
 public final class LocalTieredStorage implements RemoteStorageManager {
     public static final String STORAGE_ID_PROP = "remote.log.storage.local.id";
@@ -76,7 +76,8 @@ public final class LocalTieredStorage implements RemoteStorageManager {
 
     /**
      * The implementation of the transfer of the data of the canonical segment and index files to
-     * this storage.
+     * this storage. The only reason the "transferer" abstraction exists is to be able to simulate
+     * file copy errors and exercise the associated failure modes.
      */
     private volatile Transferer transferer = (from, to) -> Files.copy(from.toPath(), to.toPath());
 
@@ -110,7 +111,8 @@ public final class LocalTieredStorage implements RemoteStorageManager {
 
         Arrays.stream(storageDirectory.listFiles())
                 .filter(File::isDirectory)
-                .forEach(dir -> openTopicPartitionDirectory(dir.getName(), storageDirectory).traverse(traverser));
+                .forEach(dir ->
+                        openExistingTopicPartitionDirectory(dir.getName(), storageDirectory).traverse(traverser));
     }
 
     public void addListener(final LocalTieredStorageListener listener) {
@@ -172,7 +174,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
             throws RemoteStorageException {
 
         return wrap(() -> {
-            final RemoteLogSegmentFileset remoteSegmentFileset = openExistingFileset(storageDirectory, id);
+            final RemoteLogSegmentFileset remoteSegmentFileset = openFileset(storageDirectory, id);
 
             try {
                 if (!remoteSegmentFileset.getPartitionDirectory().didExist()) {
@@ -213,7 +215,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
                     "End position cannot be less than startPosition", startPosition, endPosition);
         }
         return wrap(() -> {
-            final RemoteLogSegmentFileset fileset = openExistingFileset(storageDirectory, metadata.remoteLogSegmentId());
+            final RemoteLogSegmentFileset fileset = openFileset(storageDirectory, metadata.remoteLogSegmentId());
             final InputStream inputStream = newInputStream(fileset.getFile(SEGMENT).toPath(), READ);
             inputStream.skip(startPosition);
 
@@ -227,7 +229,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     @Override
     public InputStream fetchOffsetIndex(final RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         return wrap(() -> {
-            final RemoteLogSegmentFileset fileset = openExistingFileset(storageDirectory, metadata.remoteLogSegmentId());
+            final RemoteLogSegmentFileset fileset = openFileset(storageDirectory, metadata.remoteLogSegmentId());
             return newInputStream(fileset.getFile(OFFSET_INDEX).toPath(), READ);
         });
     }
@@ -235,7 +237,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     @Override
     public InputStream fetchTimestampIndex(final RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         return wrap(() -> {
-            final RemoteLogSegmentFileset fileset = openExistingFileset(storageDirectory, metadata.remoteLogSegmentId());
+            final RemoteLogSegmentFileset fileset = openFileset(storageDirectory, metadata.remoteLogSegmentId());
             return newInputStream(fileset.getFile(TIME_INDEX).toPath(), READ);
         });
     }
@@ -244,7 +246,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     public void deleteLogSegment(final RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         wrap(() -> {
             if (deleteEnabled) {
-                final RemoteLogSegmentFileset remote = openExistingFileset(storageDirectory, metadata.remoteLogSegmentId());
+                final RemoteLogSegmentFileset remote = openFileset(storageDirectory, metadata.remoteLogSegmentId());
                 if (!remote.delete()) {
                     throw new RemoteStorageException("Failed to delete remote log segment with id:" +
                             metadata.remoteLogSegmentId());
@@ -273,7 +275,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
                 }
 
                 final boolean success = Arrays.stream(files)
-                        .map(dir -> openTopicPartitionDirectory(dir.getName(), storageDirectory))
+                        .map(dir -> openExistingTopicPartitionDirectory(dir.getName(), storageDirectory))
                         .map(RemoteTopicPartitionDirectory::delete)
                         .reduce(true, Boolean::logicalAnd);
 

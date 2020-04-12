@@ -70,10 +70,14 @@ public final class RemoteTopicPartitionDirectory {
                 .collect(Collectors.toList());
     }
 
-    public static RemoteTopicPartitionDirectory openTopicPartitionDirectory(
-            final TopicPartition topicPartition, final File storageDir) {
+    /**
+     * Creates a new {@link RemoteTopicPartitionDirectory} instance for the directory of the
+     * provided topicPartition under the root directory of the local tiered storage.
+     */
+    public static RemoteTopicPartitionDirectory openTopicPartitionDirectory(final TopicPartition topicPartition,
+                                                                            final File storageDirectory) {
 
-        final File directory = new File(storageDir, topicPartition.toString());
+        final File directory = new File(storageDirectory, topicPartition.toString());
         final boolean existed = directory.exists();
 
         if (!existed) {
@@ -84,8 +88,13 @@ public final class RemoteTopicPartitionDirectory {
         return new RemoteTopicPartitionDirectory(topicPartition, directory, existed);
     }
 
-    public static RemoteTopicPartitionDirectory openTopicPartitionDirectory(
-            final String dirname, final File parentDir) {
+    /**
+     * Creates a new {@link RemoteTopicPartitionDirectory} instance for the directory with the given
+     * name under the root directory of the local tiered storage. This method throws an
+     * {@link IllegalArgumentException} if the directory does not exist.
+     */
+    public static RemoteTopicPartitionDirectory openExistingTopicPartitionDirectory(final String dirname,
+                                                                                    final File storageDirectory) {
 
         final char topicParitionSeparator = '-';
         final int separatorIndex = dirname.lastIndexOf(topicParitionSeparator);
@@ -106,6 +115,13 @@ public final class RemoteTopicPartitionDirectory {
                     "Invalid format for topic-partition directory: %s", dirname), ex);
         }
 
-        return openTopicPartitionDirectory(new TopicPartition(topic, partition), parentDir);
+        final RemoteTopicPartitionDirectory directory =
+                openTopicPartitionDirectory(new TopicPartition(topic, partition), storageDirectory);
+
+        if (!directory.existed) {
+            throw new IllegalArgumentException(format("Topic-partitition directory %s not found", dirname));
+        }
+
+        return directory;
     }
 }

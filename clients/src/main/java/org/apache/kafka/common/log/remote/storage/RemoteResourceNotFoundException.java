@@ -29,6 +29,10 @@ public class RemoteResourceNotFoundException extends RemoteStorageException {
                 "ID: %s Resource name: %s", id.id(), resourceName));
     }
 
+    public RemoteResourceNotFoundException(final String message) {
+        super(message);
+    }
+
     public RemoteResourceNotFoundException(final Throwable cause) {
         super("One of the requested remote resource was not found", cause);
     }

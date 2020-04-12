@@ -45,19 +45,19 @@ public final class LocalTieredStorageTest {
     private final LocalLogSegments localLogSegments = new LocalLogSegments();
     private final TopicPartition topicPartition = new TopicPartition("my-topic", 1);
 
-    private LocalTieredStorage remoteStorage;
+    private LocalTieredStorage tieredStorage;
     private Verifier remoteStorageVerifier;
 
     private void init(Map<String, Object> extraConfig) {
-        remoteStorage = new LocalTieredStorage();
-        remoteStorageVerifier = new Verifier(remoteStorage, topicPartition);
+        tieredStorage = new LocalTieredStorage();
+        remoteStorageVerifier = new Verifier(tieredStorage, topicPartition);
 
         Map<String, Object> config = new HashMap<>();
         config.put(LocalTieredStorage.STORAGE_ID_PROP, generateStorageId());
         config.put(LocalTieredStorage.DELETE_ON_CLOSE_PROP, "true");
         config.putAll(extraConfig);
 
-        remoteStorage.configure(config);
+        tieredStorage.configure(config);
     }
 
     @Before
@@ -67,7 +67,7 @@ public final class LocalTieredStorageTest {
 
     @After
     public void after() {
-        remoteStorage.close();
+        tieredStorage.close();
         localLogSegments.deleteAll();
     }
 
@@ -76,7 +76,7 @@ public final class LocalTieredStorageTest {
         final RemoteLogSegmentId id = newRemoteLogSegmentId();
         final LogSegmentData segment = localLogSegments.nextSegment();
 
-        remoteStorage.copyLogSegment(id, segment);
+        tieredStorage.copyLogSegment(id, segment);
 
         remoteStorageVerifier.verifyContainsLogSegmentFiles(id, segment);
     }
@@ -87,7 +87,7 @@ public final class LocalTieredStorageTest {
         final RemoteLogSegmentId id = newRemoteLogSegmentId();
         final LogSegmentData segment = localLogSegments.nextSegment(data);
 
-        remoteStorage.copyLogSegment(id, segment);
+        tieredStorage.copyLogSegment(id, segment);
 
         remoteStorageVerifier.verifyRemoteLogSegmentMatchesLocal(id, segment);
     }
@@ -97,7 +97,7 @@ public final class LocalTieredStorageTest {
         final RemoteLogSegmentId id = newRemoteLogSegmentId();
         final LogSegmentData segment = localLogSegments.nextSegment(new byte[]{0, 1, 2});
 
-        remoteStorage.copyLogSegment(id, segment);
+        tieredStorage.copyLogSegment(id, segment);
 
         remoteStorageVerifier.verifyFetchedLogSegment(id, 0, new byte[]{0, 1, 2});
         //FIXME: Fetch at arbitrary index does not work as proper support for records need to be added.
@@ -108,7 +108,7 @@ public final class LocalTieredStorageTest {
         final RemoteLogSegmentId id = newRemoteLogSegmentId();
         final LogSegmentData segment = localLogSegments.nextSegment();
 
-        remoteStorage.copyLogSegment(id, segment);
+        tieredStorage.copyLogSegment(id, segment);
 
         remoteStorageVerifier.verifyFetchedOffsetIndex(id, LocalLogSegments.OFFSET_FILE_BYTES);
     }
@@ -118,7 +118,7 @@ public final class LocalTieredStorageTest {
         final RemoteLogSegmentId id = newRemoteLogSegmentId();
         final LogSegmentData segment = localLogSegments.nextSegment();
 
-        remoteStorage.copyLogSegment(id, segment);
+        tieredStorage.copyLogSegment(id, segment);
 
         remoteStorageVerifier.verifyFetchedTimeIndex(id, LocalLogSegments.TIME_FILE_BYTES);
     }
@@ -128,10 +128,10 @@ public final class LocalTieredStorageTest {
         final RemoteLogSegmentId id = newRemoteLogSegmentId();
         final LogSegmentData segment = localLogSegments.nextSegment();
 
-        remoteStorage.copyLogSegment(id, segment);
+        tieredStorage.copyLogSegment(id, segment);
         remoteStorageVerifier.verifyContainsLogSegmentFiles(id, segment);
 
-        remoteStorage.deleteLogSegment(newRemoteLogSegmentMetadata(id));
+        tieredStorage.deleteLogSegment(newRemoteLogSegmentMetadata(id));
         remoteStorageVerifier.verifyLogSegmentFilesAbsent(id, segment);
     }
 
@@ -142,10 +142,10 @@ public final class LocalTieredStorageTest {
         final RemoteLogSegmentId id = newRemoteLogSegmentId();
         final LogSegmentData segment = localLogSegments.nextSegment();
 
-        remoteStorage.copyLogSegment(id, segment);
+        tieredStorage.copyLogSegment(id, segment);
         remoteStorageVerifier.verifyContainsLogSegmentFiles(id, segment);
 
-        remoteStorage.deleteLogSegment(newRemoteLogSegmentMetadata(id));
+        tieredStorage.deleteLogSegment(newRemoteLogSegmentMetadata(id));
         remoteStorageVerifier.verifyContainsLogSegmentFiles(id, segment);
     }
 
@@ -156,9 +156,9 @@ public final class LocalTieredStorageTest {
         final RemoteLogSegmentId id = newRemoteLogSegmentId();
         final LogSegmentData segment = localLogSegments.nextSegment(bytes);
 
-        remoteStorage.copyLogSegment(id, segment);
+        tieredStorage.copyLogSegment(id, segment);
 
-        remoteStorage.traverse(new LocalTieredStorageTraverser() {
+        tieredStorage.traverse(new LocalTieredStorageTraverser() {
             @Override
             public void visitTopicPartition(TopicPartition topicPartition) {
                 assertEquals(LocalTieredStorageTest.this.topicPartition, topicPartition);
@@ -187,9 +187,9 @@ public final class LocalTieredStorageTest {
         final byte[] record2 = new byte[]{3, 4, 5};
         final RemoteLogSegmentId id = newRemoteLogSegmentId();
 
-        remoteStorage.copyLogSegment(id, localLogSegments.nextSegment(record1, record2));
+        tieredStorage.copyLogSegment(id, localLogSegments.nextSegment(record1, record2));
 
-        final LocalTieredStorageSnapshot snapshot = takeSnapshot(remoteStorage);
+        final LocalTieredStorageSnapshot snapshot = takeSnapshot(tieredStorage);
 
         assertEquals(asList(topicPartition), snapshot.getTopicPartitions());
         assertEquals(asList(wrap(record1), wrap(record2)), extractRecordsValue(snapshot, id));
@@ -205,10 +205,10 @@ public final class LocalTieredStorageTest {
         final RemoteLogSegmentId idA = newRemoteLogSegmentId();
         final RemoteLogSegmentId idB = newRemoteLogSegmentId();
 
-        remoteStorage.copyLogSegment(idA, localLogSegments.nextSegment(record1a, record2a));
-        remoteStorage.copyLogSegment(idB, localLogSegments.nextSegment(record1b, record2b));
+        tieredStorage.copyLogSegment(idA, localLogSegments.nextSegment(record1a, record2a));
+        tieredStorage.copyLogSegment(idB, localLogSegments.nextSegment(record1b, record2b));
 
-        final LocalTieredStorageSnapshot snapshot = takeSnapshot(remoteStorage);
+        final LocalTieredStorageSnapshot snapshot = takeSnapshot(tieredStorage);
 
         final Map<RemoteLogSegmentId, List<ByteBuffer>> expected = new HashMap<>();
         expected.put(idA, asList(wrap(record1a), wrap(record2a)));
@@ -227,18 +227,18 @@ public final class LocalTieredStorageTest {
         final RemoteLogSegmentMetadata metadata = newRemoteLogSegmentMetadata(newRemoteLogSegmentId());
 
         assertThrows(RemoteResourceNotFoundException.class,
-            () -> remoteStorage.fetchLogSegmentData(metadata, 0L, null));
-        assertThrows(RemoteResourceNotFoundException.class, () -> remoteStorage.fetchOffsetIndex(metadata));
-        assertThrows(RemoteResourceNotFoundException.class, () -> remoteStorage.fetchTimestampIndex(metadata));
+            () -> tieredStorage.fetchLogSegmentData(metadata, 0L, null));
+        assertThrows(RemoteResourceNotFoundException.class, () -> tieredStorage.fetchOffsetIndex(metadata));
+        assertThrows(RemoteResourceNotFoundException.class, () -> tieredStorage.fetchTimestampIndex(metadata));
     }
 
     @Test
     public void assertStartAndEndPositionConsistency() {
         final RemoteLogSegmentMetadata metadata = newRemoteLogSegmentMetadata(newRemoteLogSegmentId());
 
-        assertThrows(IllegalArgumentException.class, () -> remoteStorage.fetchLogSegmentData(metadata, -1L, null));
-        assertThrows(IllegalArgumentException.class, () -> remoteStorage.fetchLogSegmentData(metadata, 1L, -1L));
-        assertThrows(IllegalArgumentException.class, () -> remoteStorage.fetchLogSegmentData(metadata, 2L, 1L));
+        assertThrows(IllegalArgumentException.class, () -> tieredStorage.fetchLogSegmentData(metadata, -1L, null));
+        assertThrows(IllegalArgumentException.class, () -> tieredStorage.fetchLogSegmentData(metadata, 1L, -1L));
+        assertThrows(IllegalArgumentException.class, () -> tieredStorage.fetchLogSegmentData(metadata, 2L, 1L));
     }
 
     private RemoteLogSegmentMetadata newRemoteLogSegmentMetadata(final RemoteLogSegmentId id) {

@@ -16,6 +16,7 @@ import org.apache.kafka.common.log.remote.metadata.storage.RLMMWithTopicStorage
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorage.{DELETE_ON_CLOSE_PROP, STORAGE_ID_PROP}
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorageWaiter.newWaiter
 import org.apache.kafka.common.log.remote.storage.{LocalTieredStorage, LocalTieredStorageSnapshot}
+import org.apache.kafka.common.record.Record
 import org.apache.kafka.common.serialization.StringSerializer
 import org.junit.Assert.assertEquals
 import org.junit.{Assert, Test}
@@ -67,10 +68,11 @@ class TieredStorageTest extends IntegrationTestHarness {
 
     assertEquals(util.Arrays.asList(tp), snapshot.getTopicPartitions)
 
-    val records = snapshot.getRemoteLogSegmentFilesets
-    assertEquals(1, records.size())
+    assertEquals(1, snapshot.size())
 
-    Assert.assertEquals(util.Arrays.asList(ByteBuffer.wrap("a".getBytes)), records.values().iterator().next())
+    val record = snapshot.getFilesets(tp).get(0).getRecords.get(0)
+
+    Assert.assertEquals(ByteBuffer.wrap("a".getBytes), record.value())
   }
 
 }

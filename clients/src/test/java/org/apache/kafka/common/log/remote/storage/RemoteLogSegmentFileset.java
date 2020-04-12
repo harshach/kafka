@@ -1,9 +1,12 @@
 package org.apache.kafka.common.log.remote.storage;
 
+import org.apache.kafka.common.record.*;
 import org.slf4j.*;
 
 import java.io.*;
+import java.nio.*;
 import java.util.*;
+import java.util.stream.*;
 
 import static java.lang.String.*;
 import static java.util.Arrays.*;
@@ -34,12 +37,24 @@ public final class RemoteLogSegmentFileset {
         OFFSET_INDEX,
         TIME_INDEX;
 
+        /**
+         * Provides the name of the file of this type for the given UUID in the local tiered storage,
+         * e.g. uuid-segment.
+         */
         public String toFilename(final UUID uuid) {
             return format("%s-%s", uuid.toString(), name().toLowerCase());
         }
 
+        /**
+         * Separator in the file name of a file offloaded to the local tiered storage.
+         * It separates the string representation of the UIID and a suffix which characterizes
+         * the nature of the file.
+         */
         private static final char separator = '-';
 
+        /**
+         * Returns the nature of the data stored in the file with the provided name.
+         */
         public static RemoteLogSegmentFileType getFileType(final String filename) {
             final int separatorIndex = filename.lastIndexOf(separator);
             if (separatorIndex == -1) {
@@ -54,6 +69,11 @@ public final class RemoteLogSegmentFileset {
             }
         }
 
+        /**
+         * Extract the UUID from the filename. This UUID is that of the remote log segment id which uniquely
+         * identify the log segment which filename's data belongs to (not necessarily segment data, but also
+         * indexes or other associated files).
+         */
         public static UUID getUUID(final String filename) {
             final int separatorIndex = filename.lastIndexOf(separator);
             if (separatorIndex == -1) {
@@ -75,7 +95,7 @@ public final class RemoteLogSegmentFileset {
      * @param id Remote log segment id assigned to a log segment in Kafka.
      * @return A new fileset instance.
      */
-    public static RemoteLogSegmentFileset openExistingFileset(final File storageDir, final RemoteLogSegmentId id) {
+    public static RemoteLogSegmentFileset openFileset(final File storageDir, final RemoteLogSegmentId id) {
         final RemoteTopicPartitionDirectory tpDir = openTopicPartitionDirectory(id.topicPartition(), storageDir);
         final File partitionDirectory = tpDir.getDirectory();
         final UUID uuid = id.id();
@@ -141,12 +161,17 @@ public final class RemoteLogSegmentFileset {
         return deleteFilesOnly(files.values());
     }
 
+    public List<Record> getRecords() throws IOException {
+        return StreamSupport
+                .stream(FileRecords.open(files.get(SEGMENT)).records().spliterator(), false)
+                .collect(Collectors.toList());
+    }
+
     public void copy(final Transferer transferer, final LogSegmentData data) throws IOException {
         transferer.transfer(data.logSegment(), files.get(SEGMENT));
         transferer.transfer(data.offsetIndex(), files.get(OFFSET_INDEX));
         transferer.transfer(data.timeIndex(), files.get(TIME_INDEX));
     }
-
 
     public static boolean deleteFilesOnly(final Collection<File> files) {
         final Optional<File> notAFile = files.stream().filter(f -> !f.isFile()).findAny();

@@ -21,6 +21,7 @@ import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset.*;
 
 import java.io.*;
 import java.util.*;
+import java.util.stream.*;
 
 import static java.lang.String.*;
 
@@ -39,8 +40,18 @@ public final class LocalTieredStorageSnapshot {
         return Collections.unmodifiableList(snapshot.topicPartitions);
     }
 
-    public Map<RemoteLogSegmentId, RemoteLogSegmentFileset> getFilesets() {
+    public Map<RemoteLogSegmentId, RemoteLogSegmentFileset> getAllFilesets() {
         return Collections.unmodifiableMap(snapshot.records);
+    }
+
+    public List<RemoteLogSegmentFileset> getFilesets(final TopicPartition topicPartition) {
+        return snapshot.records.values().stream()
+                .filter(fileset -> fileset.getRemoteLogSegmentId().topicPartition().equals(topicPartition))
+                .collect(Collectors.toList());
+    }
+
+    public int size() {
+        return snapshot.records.size();
     }
 
     public File getFile(final RemoteLogSegmentId id, final RemoteLogSegmentFileType type) {
