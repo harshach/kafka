@@ -15,6 +15,17 @@ import static org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset
 import static org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset.RemoteLogSegmentFileType.*;
 import static org.slf4j.LoggerFactory.*;
 
+/**
+ * Represents a topic-partition directory in the local tiered storage under which filesets for
+ * log segments are stored.
+ *
+ * /storage-directory/topic-partition/-| uuid1-segment
+ *                                     | uuid1-offset_index
+ *                                     | uuid1-time_index
+ *                                     | uuid2-segment
+ *                                     | uuid2-offset_index
+ *                                     | uuid2-offset_index
+ */
 public final class RemoteTopicPartitionDirectory {
     private static final Logger LOGGER = getLogger(RemoteLogSegmentFileset.class);
 
@@ -54,7 +65,8 @@ public final class RemoteTopicPartitionDirectory {
                 .map(file -> getUUID(file.getName()))
                 .collect(toSet());
 
-        return uuids.stream().map(uuid -> RemoteLogSegmentFileset.openFileset(this, uuid))
+        return uuids.stream()
+                .map(uuid -> RemoteLogSegmentFileset.openExistingFileset(this, uuid))
                 .collect(Collectors.toList());
     }
 

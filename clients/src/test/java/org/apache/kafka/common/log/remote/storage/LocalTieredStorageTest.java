@@ -38,7 +38,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
-public final class LocalTieredStorageManagerTest {
+public final class LocalTieredStorageTest {
     @Rule
     public final TestName testName = new TestName();
 
@@ -161,7 +161,7 @@ public final class LocalTieredStorageManagerTest {
         remoteStorage.traverse(new LocalTieredStorageTraverser() {
             @Override
             public void visitTopicPartition(TopicPartition topicPartition) {
-                assertEquals(LocalTieredStorageManagerTest.this.topicPartition, topicPartition);
+                assertEquals(LocalTieredStorageTest.this.topicPartition, topicPartition);
             }
 
             @Override

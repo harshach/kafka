@@ -15,8 +15,20 @@ import static org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset
 import static org.apache.kafka.common.log.remote.storage.RemoteTopicPartitionDirectory.*;
 import static org.slf4j.LoggerFactory.*;
 
+/**
+ * Represents the set of files offloaded to the local tiered storage for a single log segment.
+ * A {@link RemoteLogSegmentFileset} corresponds to the leaves of the file system structure of
+ * the local tiered storage:
+ *
+ * /storage-directory/topic-partition/-| uuid-segment
+ *                                     | uuid-offset_index
+ *                                     | uuid-time_index
+ */
 public final class RemoteLogSegmentFileset {
 
+    /**
+     * Characterises the type of a file.
+     */
     public enum RemoteLogSegmentFileType {
         SEGMENT,
         OFFSET_INDEX,
@@ -54,7 +66,16 @@ public final class RemoteLogSegmentFileset {
 
     private static final Logger LOGGER = getLogger(RemoteLogSegmentFileset.class);
 
-    public static RemoteLogSegmentFileset openFileset(final File storageDir, final RemoteLogSegmentId id) {
+    /**
+     * Creates a new fileset located under the given storage directory for the provided remote log segment id.
+     * The topic-partition directory is created if it does not exist yet. However the files corresponding to
+     * the log segment offloaded are not created on the file system until transfer happens.
+     *
+     * @param storageDir The root directory of the local tiered storage.
+     * @param id Remote log segment id assigned to a log segment in Kafka.
+     * @return A new fileset instance.
+     */
+    public static RemoteLogSegmentFileset openExistingFileset(final File storageDir, final RemoteLogSegmentId id) {
         final RemoteTopicPartitionDirectory tpDir = openTopicPartitionDirectory(id.topicPartition(), storageDir);
         final File partitionDirectory = tpDir.getDirectory();
         final UUID uuid = id.id();
@@ -63,6 +84,32 @@ public final class RemoteLogSegmentFileset {
                 .collect(toMap(identity(), type -> new File(partitionDirectory, type.toFilename(uuid))));
 
         return new RemoteLogSegmentFileset(tpDir, id, files);
+    }
+
+    /**
+     * Creates a fileset instance for the physical set of files located under the given topic-partition directory.
+     * The fileset MUST exist on the file system with the given uuid.
+     *
+     * @param tpDirectory The topic-partition directory which this fileset's segment belongs to.
+     * @param uuid The expected UUID of the fileset.
+     * @return A new fileset instance.
+     */
+    public static RemoteLogSegmentFileset openExistingFileset(final RemoteTopicPartitionDirectory tpDirectory,
+                                                              final UUID uuid) {
+        final Map<RemoteLogSegmentFileType, File> files =
+                stream(tpDirectory.getDirectory().listFiles())
+                        .filter(file -> file.getName().startsWith(uuid.toString()))
+                        .collect(toMap(file -> getFileType(file.getName()), identity()));
+
+        final Set<RemoteLogSegmentFileType> expectedTypes = new HashSet<>(asList(RemoteLogSegmentFileType.values()));
+
+        if (!files.keySet().equals(expectedTypes)) {
+            expectedTypes.removeAll(files.keySet());
+            throw new IllegalStateException(format("Invalid fileset, missing files: %s", expectedTypes));
+        }
+
+        final RemoteLogSegmentId id = new RemoteLogSegmentId(tpDirectory.getTopicPartition(), uuid);
+        return new RemoteLogSegmentFileset(tpDirectory, id, files);
     }
 
     private final RemoteTopicPartitionDirectory partitionDirectory;
@@ -100,15 +147,6 @@ public final class RemoteLogSegmentFileset {
         transferer.transfer(data.timeIndex(), files.get(TIME_INDEX));
     }
 
-    public static RemoteLogSegmentFileset openFileset(final RemoteTopicPartitionDirectory tpDirectory, final UUID uuid) {
-        final Map<RemoteLogSegmentFileType, File> files =
-                stream(tpDirectory.getDirectory().listFiles())
-                        .filter(file -> file.getName().startsWith(uuid.toString()))
-                        .collect(toMap(file -> getFileType(file.getName()), identity()));
-
-        final RemoteLogSegmentId id = new RemoteLogSegmentId(tpDirectory.getTopicPartition(), uuid);
-        return new RemoteLogSegmentFileset(tpDirectory, id, files);
-    }
 
     public static boolean deleteFilesOnly(final Collection<File> files) {
         final Optional<File> notAFile = files.stream().filter(f -> !f.isFile()).findAny();

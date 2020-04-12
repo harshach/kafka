@@ -172,7 +172,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
             throws RemoteStorageException {
 
         return wrap(() -> {
-            final RemoteLogSegmentFileset remoteSegmentFileset = openFileset(storageDirectory, id);
+            final RemoteLogSegmentFileset remoteSegmentFileset = openExistingFileset(storageDirectory, id);
 
             try {
                 if (!remoteSegmentFileset.getPartitionDirectory().didExist()) {
@@ -213,7 +213,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
                     "End position cannot be less than startPosition", startPosition, endPosition);
         }
         return wrap(() -> {
-            final RemoteLogSegmentFileset fileset = openFileset(storageDirectory, metadata.remoteLogSegmentId());
+            final RemoteLogSegmentFileset fileset = openExistingFileset(storageDirectory, metadata.remoteLogSegmentId());
             final InputStream inputStream = newInputStream(fileset.getFile(SEGMENT).toPath(), READ);
             inputStream.skip(startPosition);
 
@@ -227,7 +227,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     @Override
     public InputStream fetchOffsetIndex(final RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         return wrap(() -> {
-            final RemoteLogSegmentFileset fileset = openFileset(storageDirectory, metadata.remoteLogSegmentId());
+            final RemoteLogSegmentFileset fileset = openExistingFileset(storageDirectory, metadata.remoteLogSegmentId());
             return newInputStream(fileset.getFile(OFFSET_INDEX).toPath(), READ);
         });
     }
@@ -235,7 +235,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     @Override
     public InputStream fetchTimestampIndex(final RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         return wrap(() -> {
-            final RemoteLogSegmentFileset fileset = openFileset(storageDirectory, metadata.remoteLogSegmentId());
+            final RemoteLogSegmentFileset fileset = openExistingFileset(storageDirectory, metadata.remoteLogSegmentId());
             return newInputStream(fileset.getFile(TIME_INDEX).toPath(), READ);
         });
     }
@@ -244,7 +244,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     public void deleteLogSegment(final RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         wrap(() -> {
             if (deleteEnabled) {
-                final RemoteLogSegmentFileset remote = openFileset(storageDirectory, metadata.remoteLogSegmentId());
+                final RemoteLogSegmentFileset remote = openExistingFileset(storageDirectory, metadata.remoteLogSegmentId());
                 if (!remote.delete()) {
                     throw new RemoteStorageException("Failed to delete remote log segment with id:" +
                             metadata.remoteLogSegmentId());

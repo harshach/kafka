@@ -38,6 +38,8 @@ public interface LocalTieredStorageListener {
 
     /**
      * Called when a segment has been copied to the local remote storage.
+     *
+     * @param remoteFileset The set of files offloaded for the segment, including indexes.
      */
     void onSegmentOffloaded(RemoteLogSegmentFileset remoteFileset);
 
