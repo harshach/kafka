@@ -49,11 +49,11 @@ class TieredStorageTest extends IntegrationTestHarness {
       .expectingSegmentToBeOffloaded(topicA, 0, 1)
       .expectingSegmentToBeOffloaded(topicA, 0, 1)
 
-   /*   .withTopic(topicB, 1, 2)
+      .withTopic(topicB, 1, 2)
       .producing(topicB, 0, "k1", "v1")
       .producing(topicB, 0, "k2", "v2")
       .producing(topicB, 0, "k3", "v3")
-      .expectingSegmentToBeOffloaded(topicB, 0, 2)*/
+      .expectingSegmentToBeOffloaded(topicB, 0, 2)
 
       .create()
 

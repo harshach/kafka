@@ -46,10 +46,7 @@ final class TieredStorageTestCase(val recordsToProduce: Map[TopicPartition, Seq[
       val filesets = snapshot.getFilesets(x._1)
 
       filesets.asScala
-        .sortWith((x, y) => {
-          print(x.getRecords.get(0).offset() + " " + y.getRecords.get(0).offset())
-          x.getRecords.get(0).offset() <= y.getRecords.get(0).offset()
-        })
+        .sortWith((x, y) => x.getRecords.get(0).offset() <= y.getRecords.get(0).offset())
         .zip(x._2).foreach { y: (RemoteLogSegmentFileset, OffloadedSegmentSpec) =>
           val actual = y._1.getRecords.asScala.map(record => (record.key(), record.value()))
           val expected = y._2.records.map(
@@ -84,12 +81,21 @@ final class TieredStorageTestCaseBuilder(private val kafkaServers: Seq[KafkaServ
     val topicProps = new Properties()
 
     //
+    // Ensure offset and time indexes are generated for every record.
+    //
+    topicProps.put(TopicConfig.INDEX_INTERVAL_BYTES_CONFIG, 1.toString)
+
+    //
     // Leverage the use of the segment index size to create a log-segment accepting one and only one record.
     // The minimum size of the indexes is that of an entry, which is 8 for the offset index and 12 for the
-    // time index. Hence, with 12, we can guarantee no more than one entry in both the offset and time index.
+    // time index. Hence, since the topic is configured to generate index entries for every record with, for
+    // a "small" number of records (i.e. such that the average record size times the number of records is
+    // much less than the segment size), the number of records which hold in a segment is the multiple of 12
+    // defined below.
     //
     if (segmentSize != -1) {
-      topicProps.put(TopicConfig.SEGMENT_INDEX_BYTES_CONFIG, (segmentSize * 12).toString)
+      assert(segmentSize >= 1)
+      topicProps.put(TopicConfig.SEGMENT_INDEX_BYTES_CONFIG, (12 * segmentSize).toString)
     }
 
     TestUtils.createTopic(zookeeperClient, name, partitions, brokerCount, kafkaServers, topicProps)
