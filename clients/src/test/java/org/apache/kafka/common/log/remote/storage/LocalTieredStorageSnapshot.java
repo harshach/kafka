@@ -40,10 +40,6 @@ public final class LocalTieredStorageSnapshot {
         return Collections.unmodifiableList(snapshot.topicPartitions);
     }
 
-    public Map<RemoteLogSegmentId, RemoteLogSegmentFileset> getAllFilesets() {
-        return Collections.unmodifiableMap(snapshot.records);
-    }
-
     public List<RemoteLogSegmentFileset> getFilesets(final TopicPartition topicPartition) {
         return snapshot.records.values().stream()
                 .filter(fileset -> fileset.getRemoteLogSegmentId().topicPartition().equals(topicPartition))

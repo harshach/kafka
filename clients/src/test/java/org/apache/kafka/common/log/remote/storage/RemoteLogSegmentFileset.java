@@ -23,9 +23,9 @@ import static org.slf4j.LoggerFactory.*;
  * A {@link RemoteLogSegmentFileset} corresponds to the leaves of the file system structure of
  * the local tiered storage:
  *
- * /storage-directory/topic-partition/-| uuid-segment
- *                                     | uuid-offset_index
- *                                     | uuid-time_index
+ * / storage-directory / topic-partition / 82da091b-84f5-4d72-9ceb-3532a1f3a4c1-segment
+ *                                       . 82da091b-84f5-4d72-9ceb-3532a1f3a4c1-offset_index
+ *                                       . 82da091b-84f5-4d72-9ceb-3532a1f3a4c1-time_index
  */
 public final class RemoteLogSegmentFileset {
 
@@ -47,7 +47,7 @@ public final class RemoteLogSegmentFileset {
 
         /**
          * Separator in the file name of a file offloaded to the local tiered storage.
-         * It separates the string representation of the UIID and a suffix which characterizes
+         * It separates the string representation of the UUID and a suffix which characterizes
          * the nature of the file.
          */
         private static final char separator = '-';

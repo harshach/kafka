@@ -33,7 +33,7 @@ public final class LocalTieredStorageWaiter {
     private final Map<TopicPartition, AtomicInteger> remainingSegments;
     private final CountDownLatch latch;
 
-    public static LocalTieredStorageWaiter.Builder newWaiter() {
+    public static LocalTieredStorageWaiter.Builder newWaiterBuilder() {
         return new LocalTieredStorageWaiter.Builder();
     }
 
@@ -91,14 +91,17 @@ public final class LocalTieredStorageWaiter {
          * to wait upon.
          */
         public Builder addSegmentsToWaitFor(final TopicPartition topicPartition, final int numberOfSegments) {
-            segmentCountDowns.put(topicPartition, new AtomicInteger(numberOfSegments));
+            segmentCountDowns.compute(topicPartition, (k, v) -> {
+                int current = v == null ? 0 : v.get();
+                return new AtomicInteger(current + numberOfSegments);
+            });
             return this;
         }
 
         /**
          * Builds a new waiter listening for notifications from the given storage.
          */
-        public LocalTieredStorageWaiter fromStorage(final LocalTieredStorage storage) {
+        public LocalTieredStorageWaiter create(final LocalTieredStorage storage) {
             final LocalTieredStorageWaiter waiter = new LocalTieredStorageWaiter(this);
             storage.addListener(waiter.new InternalListener());
             return waiter;

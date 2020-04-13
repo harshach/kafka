@@ -1,25 +1,15 @@
 package integration.kafka.tiered.storage
 
-import java.nio.ByteBuffer
-import java.util
 import java.util.Properties
-import java.util.concurrent.TimeUnit
 
+import integration.kafka.tiered.storage.TieredStorageTestCaseBuilder.newTestCase
 import kafka.api.IntegrationTestHarness
 import kafka.server.KafkaConfig
-import kafka.utils.TestUtils
 import kafka.utils.TestUtils.createBrokerConfigs
-import org.apache.kafka.clients.producer.ProducerRecord
-import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.config.TopicConfig
 import org.apache.kafka.common.log.remote.metadata.storage.RLMMWithTopicStorage
+import org.apache.kafka.common.log.remote.storage.LocalTieredStorage
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorage.{DELETE_ON_CLOSE_PROP, STORAGE_ID_PROP}
-import org.apache.kafka.common.log.remote.storage.LocalTieredStorageWaiter.newWaiter
-import org.apache.kafka.common.log.remote.storage.{LocalTieredStorage, LocalTieredStorageSnapshot}
-import org.apache.kafka.common.record.Record
-import org.apache.kafka.common.serialization.StringSerializer
-import org.junit.Assert.assertEquals
-import org.junit.{Assert, Test}
+import org.junit.Test
 
 class TieredStorageTest extends IntegrationTestHarness {
 
@@ -31,8 +21,8 @@ class TieredStorageTest extends IntegrationTestHarness {
     overridingProps.setProperty(KafkaConfig.RemoteLogManagerTaskIntervalMsProp, 1000.toString)
     overridingProps.setProperty(KafkaConfig.RemoteLogMetadataTopicReplicationFactorProp, 1.toString)
 
-    overridingProps.setProperty(STORAGE_ID_PROP, "tiered-storage")
-    overridingProps.setProperty(DELETE_ON_CLOSE_PROP, "true")
+    overridingProps.setProperty(STORAGE_ID_PROP, "tiered-storage-tests")
+    overridingProps.setProperty(DELETE_ON_CLOSE_PROP, "false")
 
     createBrokerConfigs(numConfigs = 1, zkConnect).map(KafkaConfig.fromProps(_, overridingProps))
   }
@@ -41,22 +31,30 @@ class TieredStorageTest extends IntegrationTestHarness {
 
   @Test
   def test(): Unit = {
-    val logDirectory = configs(0).get(KafkaConfig.LogDirProp)
 
-    //
-    // Leverage the use of the segment index size to create a log-segment accepting one and only one record.
-    // The minimum size of the indexes is that of an entry, which is 8 for the offset index and 12 for the
-    // time index. Hence, with 12, we can guarantee no more than one entry in both the offset and time index.
-    //
-    val topicProps = new Properties()
+    val topicName = "aTopic"
+
+    val remoteStorage = serverForId(0).get.remoteLogManager.get.storageManager().asInstanceOf[LocalTieredStorage]
+
+    val testCase = newTestCase(servers, zkClient, producerConfig, remoteStorage)
+      .withTopic(topicName, 1, 1)
+      .producing(topicName, 0, "key1", "value1")
+      .producing(topicName, 0, "key2", "value2")
+      .expectingSegmentToBeOffloaded(topicName, 0, 1)
+      .create()
+
+    testCase.exercise()
+
+    testCase.verify()
+
+    /*val topicProps = new Properties()
     topicProps.setProperty(TopicConfig.SEGMENT_INDEX_BYTES_CONFIG, 12.toString)
 
     TestUtils.createTopic(zkClient, "phoque", brokerCount, brokerCount, servers, topicProps)
 
-    val remoteStorage = serverForId(0).get.remoteLogManager.get.storageManager().asInstanceOf[LocalTieredStorage]
     val tp = new TopicPartition("phoque", 0)
 
-    val waiter = newWaiter().addSegmentsToWaitFor(tp, 1).fromStorage(remoteStorage)
+    val waiter = newWaiterBuilder().addSegmentsToWaitFor(tp, 1).create(remoteStorage)
 
     val producer = createProducer(new StringSerializer, new StringSerializer)
     producer.send(new ProducerRecord[String, String]("phoque", "a")).get()
@@ -77,11 +75,11 @@ class TieredStorageTest extends IntegrationTestHarness {
     topicProps.setProperty(TopicConfig.SEGMENT_INDEX_BYTES_CONFIG, 24.toString)
     TestUtils.createTopic(zkClient, "phoque2", brokerCount, brokerCount, servers, topicProps)
 
-    val w = newWaiter().addSegmentsToWaitFor(tp, 1).fromStorage(remoteStorage)
+    val w = newWaiterBuilder().addSegmentsToWaitFor(tp, 1).create(remoteStorage)
 
     producer.send(new ProducerRecord[String, String]("phoque2", "a")).get()
     producer.send(new ProducerRecord[String, String]("phoque2", "b")).get()
-    producer.send(new ProducerRecord[String, String]("phoque2", "c")).get()
+    producer.send(new ProducerRecord[String, String]("phoque2", "c")).get()*/
 
 
 
