@@ -40,10 +40,32 @@ import java.util.concurrent.*;
  * <p>
  * Due to the consistency semantic of POSIX-compliant file systems, this remote storage provides strong
  * read-after-write consistency and a segment's data can be accessed once the copy to the storage succeeded.
+ * </p>
  * <p>
  * In order to guarantee isolation, independence, reproducibility and consistency of unit and integration
  * tests, the scope of a storage implemented by this class, and identified via the storage ID provided to
  * the constructor, should be limited to a test or well-defined self-contained use-case.
+ * </p>
+ * <p>
+ * The local tiered storage keeps a simple structure of directories mimicking that of Apache Kafka.
+ * Given the root directory of the storage, segments and associated files are organized
+ * </p>
+ * <code>
+ *  / storage-directory  / a-topic-0 / 9b8dd441-28af-4805-936f-f02db37f11b5-segment
+ *                       .           . 9b8dd441-28af-4805-936f-f02db37f11b5-offset_index
+ *                       .           . 9b8dd441-28af-4805-936f-f02db37f11b5-time_index
+ *                       .           . 4674f230-d15b-41f7-a5a6-d874b794de42-segment
+ *                       .           . 4674f230-d15b-41f7-a5a6-d874b794de42-offset_index
+ *                       .           . 4674f230-d15b-41f7-a5a6-d874b794de42-segment
+ *                       .
+ *                       / a-topic-1 / 82da091b-84f5-4d72-9ceb-3532a1f3a4c1-segment
+ *                       .           . 82da091b-84f5-4d72-9ceb-3532a1f3a4c1-offset_index
+ *                       .           . 82da091b-84f5-4d72-9ceb-3532a1f3a4c1-time_index
+ *                       .
+ *                       / b-topic-3 / df2bbd78-3bfd-438c-a4ff-29a45a4d4e9d-segment
+ *                                   . df2bbd78-3bfd-438c-a4ff-29a45a4d4e9d-offset_index
+ *                                   . df2bbd78-3bfd-438c-a4ff-29a45a4d4e9d-time_index
+ * </code>
  */
 public final class LocalTieredStorage implements RemoteStorageManager {
     public static final String STORAGE_ID_PROP = "remote.log.storage.local.id";

@@ -73,6 +73,19 @@ class TieredStorageTest extends IntegrationTestHarness {
     val record = snapshot.getFilesets(tp).get(0).getRecords.get(0)
 
     Assert.assertEquals(ByteBuffer.wrap("a".getBytes), record.value())
+
+    topicProps.setProperty(TopicConfig.SEGMENT_INDEX_BYTES_CONFIG, 24.toString)
+    TestUtils.createTopic(zkClient, "phoque2", brokerCount, brokerCount, servers, topicProps)
+
+    val w = newWaiter().addSegmentsToWaitFor(tp, 1).fromStorage(remoteStorage)
+
+    producer.send(new ProducerRecord[String, String]("phoque2", "a")).get()
+    producer.send(new ProducerRecord[String, String]("phoque2", "b")).get()
+    producer.send(new ProducerRecord[String, String]("phoque2", "c")).get()
+
+
+
+
   }
 
 }
