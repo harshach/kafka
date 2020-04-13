@@ -23,14 +23,16 @@ import static org.slf4j.LoggerFactory.*;
  * A {@link RemoteLogSegmentFileset} corresponds to the leaves of the file system structure of
  * the local tiered storage:
  *
+ * <code>
  * / storage-directory / topic-partition / 82da091b-84f5-4d72-9ceb-3532a1f3a4c1-segment
  *                                       . 82da091b-84f5-4d72-9ceb-3532a1f3a4c1-offset_index
  *                                       . 82da091b-84f5-4d72-9ceb-3532a1f3a4c1-time_index
+ * </code>
  */
 public final class RemoteLogSegmentFileset {
 
     /**
-     * Characterises the type of a file.
+     * Characterises the type of a file in the local tiered storage copied from Apache Kafka's standard storage.
      */
     public enum RemoteLogSegmentFileType {
         SEGMENT,

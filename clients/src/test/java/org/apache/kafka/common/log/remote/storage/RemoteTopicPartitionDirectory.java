@@ -19,12 +19,15 @@ import static org.slf4j.LoggerFactory.*;
  * Represents a topic-partition directory in the local tiered storage under which filesets for
  * log segments are stored.
  *
- * /storage-directory/topic-partition/-| uuid1-segment
- *                                     | uuid1-offset_index
- *                                     | uuid1-time_index
- *                                     | uuid2-segment
- *                                     | uuid2-offset_index
- *                                     | uuid2-offset_index
+ * <code>
+ * / storage-directory / a-topic-1 / 82da091b-84f5-4d72-9ceb-3532a1f3a4c1-segment
+ *                     .           . 82da091b-84f5-4d72-9ceb-3532a1f3a4c1-offset_index
+ *                     .           . 82da091b-84f5-4d72-9ceb-3532a1f3a4c1-time_index
+ *                     .
+ *                     / b-topic-3 / df2bbd78-3bfd-438c-a4ff-29a45a4d4e9d-segment
+ *                                 . df2bbd78-3bfd-438c-a4ff-29a45a4d4e9d-offset_index
+ *                                 . df2bbd78-3bfd-438c-a4ff-29a45a4d4e9d-time_index
+ * </code>
  */
 public final class RemoteTopicPartitionDirectory {
     private static final Logger LOGGER = getLogger(RemoteLogSegmentFileset.class);

@@ -9,7 +9,9 @@ import kafka.utils.TestUtils.createBrokerConfigs
 import org.apache.kafka.common.log.remote.metadata.storage.RLMMWithTopicStorage
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorage
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorage.{DELETE_ON_CLOSE_PROP, STORAGE_ID_PROP}
-import org.junit.Test
+import org.junit.{After, Test}
+
+import scala.collection.mutable
 
 class TieredStorageTest extends IntegrationTestHarness {
 
@@ -22,68 +24,51 @@ class TieredStorageTest extends IntegrationTestHarness {
     overridingProps.setProperty(KafkaConfig.RemoteLogMetadataTopicReplicationFactorProp, 1.toString)
 
     overridingProps.setProperty(STORAGE_ID_PROP, "tiered-storage-tests")
-    overridingProps.setProperty(DELETE_ON_CLOSE_PROP, "false")
+    overridingProps.setProperty(DELETE_ON_CLOSE_PROP, "true")
 
     createBrokerConfigs(numConfigs = 1, zkConnect).map(KafkaConfig.fromProps(_, overridingProps))
   }
 
   override protected def brokerCount: Int = 1
 
+  private val testCases = mutable.Buffer[TieredStorageTestCase]()
+
   @Test
   def test(): Unit = {
-
-    val topicName = "aTopic"
+    val topicA = "topicA"
+    val topicB = "topicB"
 
     val remoteStorage = serverForId(0).get.remoteLogManager.get.storageManager().asInstanceOf[LocalTieredStorage]
 
     val testCase = newTestCase(servers, zkClient, producerConfig, remoteStorage)
-      .withTopic(topicName, 1, 1)
-      .producing(topicName, 0, "key1", "value1")
-      .producing(topicName, 0, "key2", "value2")
-      .expectingSegmentToBeOffloaded(topicName, 0, 1)
+
+      .withTopic(topicA, 1, 1)
+      .producing(topicA, 0, "k1", "v1")
+      .producing(topicA, 0, "k2", "v2")
+      .producing(topicA, 0, "k3", "v3")
+      .expectingSegmentToBeOffloaded(topicA, 0, 1)
+      .expectingSegmentToBeOffloaded(topicA, 0, 1)
+
+   /*   .withTopic(topicB, 1, 2)
+      .producing(topicB, 0, "k1", "v1")
+      .producing(topicB, 0, "k2", "v2")
+      .producing(topicB, 0, "k3", "v3")
+      .expectingSegmentToBeOffloaded(topicB, 0, 2)*/
+
       .create()
 
-    testCase.exercise()
+    testCases += testCase
 
+    testCase.exercise()
     testCase.verify()
 
-    /*val topicProps = new Properties()
-    topicProps.setProperty(TopicConfig.SEGMENT_INDEX_BYTES_CONFIG, 12.toString)
+  }
 
-    TestUtils.createTopic(zkClient, "phoque", brokerCount, brokerCount, servers, topicProps)
+  @After
+  override def tearDown(): Unit = {
+    testCases.foreach(_.close())
 
-    val tp = new TopicPartition("phoque", 0)
-
-    val waiter = newWaiterBuilder().addSegmentsToWaitFor(tp, 1).create(remoteStorage)
-
-    val producer = createProducer(new StringSerializer, new StringSerializer)
-    producer.send(new ProducerRecord[String, String]("phoque", "a")).get()
-    producer.send(new ProducerRecord[String, String]("phoque", "b")).get()
-
-    waiter.waitForSegments(5, TimeUnit.SECONDS)
-
-    val snapshot = LocalTieredStorageSnapshot.takeSnapshot(remoteStorage)
-
-    assertEquals(util.Arrays.asList(tp), snapshot.getTopicPartitions)
-
-    assertEquals(1, snapshot.size())
-
-    val record = snapshot.getFilesets(tp).get(0).getRecords.get(0)
-
-    Assert.assertEquals(ByteBuffer.wrap("a".getBytes), record.value())
-
-    topicProps.setProperty(TopicConfig.SEGMENT_INDEX_BYTES_CONFIG, 24.toString)
-    TestUtils.createTopic(zkClient, "phoque2", brokerCount, brokerCount, servers, topicProps)
-
-    val w = newWaiterBuilder().addSegmentsToWaitFor(tp, 1).create(remoteStorage)
-
-    producer.send(new ProducerRecord[String, String]("phoque2", "a")).get()
-    producer.send(new ProducerRecord[String, String]("phoque2", "b")).get()
-    producer.send(new ProducerRecord[String, String]("phoque2", "c")).get()*/
-
-
-
-
+    super.tearDown()
   }
 
 }

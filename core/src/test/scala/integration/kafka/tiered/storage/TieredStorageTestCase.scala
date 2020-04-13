@@ -14,7 +14,7 @@ import org.apache.kafka.common.config.TopicConfig
 import org.apache.kafka.common.log.remote.storage.{LocalTieredStorage, LocalTieredStorageSnapshot, RemoteLogSegmentFileset}
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorageWaiter.newWaiterBuilder
 import org.apache.kafka.common.serialization.StringSerializer
-import org.junit.Assert
+import org.junit.Assert.assertEquals
 
 import scala.collection.{Seq, mutable}
 
@@ -35,8 +35,6 @@ final class TieredStorageTestCase(val recordsToProduce: Map[TopicPartition, Seq[
     recordsToProduce.values.flatten.foreach(producer.send(_).get())
 
     waiter.waitForSegments(offloadWaitTimeoutSec, TimeUnit.SECONDS)
-
-    producer.close(Duration.ZERO)
   }
 
   def verify(): Unit = {
@@ -46,19 +44,27 @@ final class TieredStorageTestCase(val recordsToProduce: Map[TopicPartition, Seq[
 
     offloadedSegments.foreach { x: (TopicPartition, Seq[OffloadedSegmentSpec]) =>
       val filesets = snapshot.getFilesets(x._1)
-      filesets.asScala.zip(x._2).foreach { y: (RemoteLogSegmentFileset, OffloadedSegmentSpec) =>
 
-        val actual = y._1.getRecords.asScala.map(record => (record.key(), record.value()))
-        val expected = y._2.records.map(
-          r => (ByteBuffer.wrap(r.key().getBytes()), ByteBuffer.wrap(r.value().getBytes())))
+      filesets.asScala
+        .sortWith((x, y) => {
+          print(x.getRecords.get(0).offset() + " " + y.getRecords.get(0).offset())
+          x.getRecords.get(0).offset() <= y.getRecords.get(0).offset()
+        })
+        .zip(x._2).foreach { y: (RemoteLogSegmentFileset, OffloadedSegmentSpec) =>
+          val actual = y._1.getRecords.asScala.map(record => (record.key(), record.value()))
+          val expected = y._2.records.map(
+            r => (ByteBuffer.wrap(r.key().getBytes()), ByteBuffer.wrap(r.value().getBytes())))
 
-        Assert.assertEquals(expected, actual)
+          assertEquals(
+            s"Record values do not match. Expected: ${y._1.getRecords}, actual: ${y._2.records}",
+            expected, actual)
       }
+
     }
   }
 
   def close(): Unit = {
-
+    producer.close(Duration.ZERO)
   }
 }
 
@@ -112,14 +118,17 @@ final class TieredStorageTestCaseBuilder(private val kafkaServers: Seq[KafkaServ
   }
 
   def create(): TieredStorageTestCase = {
-    val recordsToProduce = producables.mapValues(_.toSeq)
+    val recordsToProduce = Map() ++ producables.mapValues(Seq() ++ _)
     val recordsOffloaded = offloadables.map {x: ((TopicPartition, mutable.Buffer[Int])) =>
-      (x._1, x._2.map(size => new OffloadedSegmentSpec(x._1, producables(x._1).take(size))))
+      (x._1, x._2.map(size => {
+        val segments = (0 until size).map(_ => producables(x._1).remove(0))
+        new OffloadedSegmentSpec(x._1, segments)
+      }))
     }
 
     val producer = new KafkaProducer[String, String](producerConfig, new StringSerializer, new StringSerializer)
 
-    new TieredStorageTestCase(recordsToProduce.toMap, recordsOffloaded.toMap, producer, storage)
+    new TieredStorageTestCase(recordsToProduce, recordsOffloaded.toMap, producer, storage)
   }
 }
 
