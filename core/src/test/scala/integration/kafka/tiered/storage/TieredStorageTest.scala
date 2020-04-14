@@ -39,8 +39,9 @@ class TieredStorageTest extends IntegrationTestHarness {
     val topicB = "topicB"
 
     val remoteStorage = serverForId(0).get.remoteLogManager.get.storageManager().asInstanceOf[LocalTieredStorage]
+    val kafkaStorageDirectory = configs(0).get(KafkaConfig.LogDirProp).asInstanceOf[String]
 
-    val testCase = newTestCase(servers, zkClient, producerConfig, consumerConfig, remoteStorage)
+    val testCase = newTestCase(servers, zkClient, producerConfig, consumerConfig, remoteStorage, kafkaStorageDirectory)
 
       .withTopic(topicA, partitions = 1, segmentSize = 1)
       .producing(topicA, partition = 0, key = "k1", value = "v1")

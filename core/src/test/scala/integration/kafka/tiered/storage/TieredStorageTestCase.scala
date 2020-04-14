@@ -29,7 +29,8 @@ final class TieredStorageTestCase(val recordsToProduce: Map[TopicPartition, Seq[
                                   val offloadedSegments: Map[TopicPartition, Seq[OffloadedSegmentSpec]],
                                   val producer: KafkaProducer[String, String],
                                   val consumer: KafkaConsumer[String, String],
-                                  val storage: LocalTieredStorage) {
+                                  val tieredStorage: LocalTieredStorage,
+                                  val kafkaStorageWatcher: StorageWatcher) {
 
   val offloadWaitTimeoutSec = 5
 
@@ -41,7 +42,7 @@ final class TieredStorageTestCase(val recordsToProduce: Map[TopicPartition, Seq[
     val tieredStorageWatcher = {
       val watcherBuilder = newWatcherBuilder()
       offloadedSegments.foreach { x => watcherBuilder.addSegmentsToWaitFor(x._1, x._2.length) }
-      watcherBuilder.create(storage)
+      watcherBuilder.create(tieredStorage)
     }
 
     recordsToProduce.values.flatten.foreach(producer.send(_).get())
@@ -52,7 +53,7 @@ final class TieredStorageTestCase(val recordsToProduce: Map[TopicPartition, Seq[
   def verify(): Unit = {
     import scala.collection.JavaConverters._
 
-    val snapshot = LocalTieredStorageSnapshot.takeSnapshot(storage)
+    val snapshot = LocalTieredStorageSnapshot.takeSnapshot(tieredStorage)
 
     offloadedSegments.foreach { x: (TopicPartition, Seq[OffloadedSegmentSpec]) =>
       val topicPartition = x._1
@@ -130,7 +131,8 @@ final class TieredStorageTestCaseBuilder(private val kafkaServers: Seq[KafkaServ
                                          private val zookeeperClient: KafkaZkClient,
                                          private val producerConfig: Properties,
                                          private val consumerConfig: Properties,
-                                         private val storage: LocalTieredStorage) {
+                                         private val storage: LocalTieredStorage,
+                                         private val kafkaStorageDirectory: String) {
 
   val producables: mutable.Map[TopicPartition, mutable.Buffer[ProducerRecord[String, String]]] = mutable.Map()
   val offloadables: mutable.Map[TopicPartition, mutable.Buffer[(Int, Int)]] = mutable.Map()
@@ -160,8 +162,15 @@ final class TieredStorageTestCaseBuilder(private val kafkaServers: Seq[KafkaServ
       topicProps.put(TopicConfig.SEGMENT_INDEX_BYTES_CONFIG, (12 * segmentSize).toString)
     }
 
+    //
+    // To verify records physically absent from Kafka's storage can be consumed via the tiered storage, we
+    // want to delete log segments as soon as possible. When the tiered storage is active, an inactive log
+    // segment is not eligible for deletion until it has been offloaded, which guarantees all segments
+    // should be offloaded before deletion, and their consumption is possible thereafter.
+    //
     if (deleteAfterOffload) {
       topicProps.put(TopicConfig.RETENTION_BYTES_CONFIG, 1.toString)
+      topicProps.put(TopicConfig.FILE_DELETE_DELAY_MS_CONFIG, 1.toString)
     }
 
     TestUtils.createTopic(zookeeperClient, name, partitions, brokerCount, kafkaServers, topicProps)
@@ -213,7 +222,9 @@ final class TieredStorageTestCaseBuilder(private val kafkaServers: Seq[KafkaServ
     val producer = new KafkaProducer[String, String](producerConfig, serializer, serializer)
     val consumer = new KafkaConsumer[String, String](consumerConfig, deserializer, deserializer)
 
-    new TieredStorageTestCase(recordsToProduce, recordsOffloaded.toMap, producer, consumer, storage)
+    val kafkaStorageWatcher = new StorageWatcher(kafkaStorageDirectory)
+
+    new TieredStorageTestCase(recordsToProduce, recordsOffloaded.toMap, producer, consumer, storage, kafkaStorageWatcher)
   }
 }
 
@@ -223,8 +234,9 @@ object TieredStorageTestCaseBuilder {
                   zookeeperClient: KafkaZkClient,
                   producerConfig: Properties,
                   consumerConfig: Properties,
-                  storage: LocalTieredStorage): TieredStorageTestCaseBuilder = {
+                  storage: LocalTieredStorage,
+                  kafkaStorageDirectory: String): TieredStorageTestCaseBuilder = {
 
-    new TieredStorageTestCaseBuilder(kafkaServers, zookeeperClient, producerConfig, consumerConfig, storage)
+    new TieredStorageTestCaseBuilder(kafkaServers, zookeeperClient, producerConfig, consumerConfig, storage, kafkaStorageDirectory)
   }
 }
