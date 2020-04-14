@@ -40,34 +40,33 @@ class TieredStorageTest extends IntegrationTestHarness {
 
     val remoteStorage = serverForId(0).get.remoteLogManager.get.storageManager().asInstanceOf[LocalTieredStorage]
 
-    val testCase = newTestCase(servers, zkClient, producerConfig, remoteStorage)
+    val testCase = newTestCase(servers, zkClient, producerConfig, consumerConfig, remoteStorage)
 
-      .withTopic(topicA, 1, 1)
-      .producing(topicA, 0, "k1", "v1")
-      .producing(topicA, 0, "k2", "v2")
-      .producing(topicA, 0, "k3", "v3")
-      .expectingSegmentToBeOffloaded(topicA, 0, 1)
-      .expectingSegmentToBeOffloaded(topicA, 0, 1)
+      .withTopic(topicA, partitions = 1, segmentSize = 1)
+      .producing(topicA, partition = 0, key = "k1", value = "v1")
+      .producing(topicA, partition = 0, key = "k2", value = "v2")
+      .producing(topicA, partition = 0, key = "k3", value = "v3")
+      .expectingSegmentToBeOffloaded(topicA, partition = 0, baseOffset = 0, segmentSize = 1)
+      .expectingSegmentToBeOffloaded(topicA, partition = 0, baseOffset = 1, segmentSize = 1)
 
-      .withTopic(topicB, 1, 2)
-      .producing(topicB, 0, "k1", "v1")
-      .producing(topicB, 0, "k2", "v2")
-      .producing(topicB, 0, "k3", "v3")
-      .expectingSegmentToBeOffloaded(topicB, 0, 2)
+      .withTopic(topicB, partitions = 1, segmentSize = 2)
+      .producing(topicB, partition = 0, key = "k1", value = "v1")
+      .producing(topicB, partition = 0, key = "k2", value = "v2")
+      .producing(topicB, partition = 0, key = "k3", value = "v3")
+      .expectingSegmentToBeOffloaded(topicB, partition = 0, baseOffset = 0, segmentSize = 2)
 
       .create()
 
     testCases += testCase
 
-    testCase.exercise()
+    testCase.execute()
     testCase.verify()
 
   }
 
   @After
   override def tearDown(): Unit = {
-    testCases.foreach(_.close())
-
+    testCases.foreach(_.tearDown())
     super.tearDown()
   }
 

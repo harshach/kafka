@@ -29,12 +29,12 @@ import static java.util.stream.Collectors.*;
 /**
  * Provides support to wait on internal modifications from the local tiered storage.
  */
-public final class LocalTieredStorageWaiter {
+public final class LocalTieredStorageWatcher {
     private final Map<TopicPartition, AtomicInteger> remainingSegments;
     private final CountDownLatch latch;
 
-    public static LocalTieredStorageWaiter.Builder newWaiterBuilder() {
-        return new LocalTieredStorageWaiter.Builder();
+    public static LocalTieredStorageWatcher.Builder newWatcherBuilder() {
+        return new LocalTieredStorageWatcher.Builder();
     }
 
     /**
@@ -47,7 +47,7 @@ public final class LocalTieredStorageWaiter {
      * @throws InterruptedException if the current thread is interrupted while waiting.
      * @throws TimeoutException if the time specified by {@code timeout} elapsed before all segments were reported.
      */
-    public void waitForSegments(final long timeout, final TimeUnit unit) throws InterruptedException, TimeoutException {
+    public void watch(final long timeout, final TimeUnit unit) throws InterruptedException, TimeoutException {
         LOGGER.debug("Waiting on segments from topic-partitions: {}", remainingSegments);
 
         if (!latch.await(timeout, unit)) {
@@ -57,7 +57,7 @@ public final class LocalTieredStorageWaiter {
         }
     }
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(LocalTieredStorageWaiter.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(LocalTieredStorageWatcher.class);
 
     private final class InternalListener implements LocalTieredStorageListener {
         @Override
@@ -77,7 +77,7 @@ public final class LocalTieredStorageWaiter {
         }
     }
 
-    private LocalTieredStorageWaiter(final Builder builder) {
+    private LocalTieredStorageWatcher(final Builder builder) {
         this.remainingSegments = Collections.unmodifiableMap(builder.segmentCountDowns);
         final int segmentCount = remainingSegments.values().stream().collect(summingInt(AtomicInteger::get));
         this.latch = new CountDownLatch(segmentCount);
@@ -101,8 +101,8 @@ public final class LocalTieredStorageWaiter {
         /**
          * Builds a new waiter listening for notifications from the given storage.
          */
-        public LocalTieredStorageWaiter create(final LocalTieredStorage storage) {
-            final LocalTieredStorageWaiter waiter = new LocalTieredStorageWaiter(this);
+        public LocalTieredStorageWatcher create(final LocalTieredStorage storage) {
+            final LocalTieredStorageWatcher waiter = new LocalTieredStorageWatcher(this);
             storage.addListener(waiter.new InternalListener());
             return waiter;
         }
