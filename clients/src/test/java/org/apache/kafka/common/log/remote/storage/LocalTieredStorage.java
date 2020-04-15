@@ -18,6 +18,7 @@ package org.apache.kafka.common.log.remote.storage;
 
 import org.apache.kafka.common.errors.InvalidConfigurationException;
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorageListener.*;
+import org.apache.kafka.test.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -68,18 +69,17 @@ import java.util.concurrent.*;
  * </code>
  */
 public final class LocalTieredStorage implements RemoteStorageManager {
-    public static final String STORAGE_ID_PROP = "remote.log.storage.local.id";
+    public static final String STORAGE_DIR_PROP = "remote.log.storage.local.dir";
     public static final String DELETE_ON_CLOSE_PROP = "remote.log.storage.local.delete.on.close";
     public static final String TRANSFERER_CLASS_PROP = "remote.log.storage.local.transferer";
     public static final String ENABLE_DELETE_API_PROP = "remote.log.storage.local.delete.enable";
 
-    private static final String ROOT_STORAGES_DIR_NAME = "remote-storage";
+    private static final String ROOT_STORAGES_DIR_NAME = "kafka-tiered-storage";
 
     private static final Logger LOGGER = LoggerFactory.getLogger(LocalTieredStorage.class);
 
     /**
-     * The ID assigned to this storage and used for reference. Using descriptive, unique ID is
-     * recommended to ensure a storage can be unambiguously associated to the test which created it.
+     * The root directory of this storage.
      */
     private volatile File storageDirectory;
 
@@ -149,14 +149,10 @@ public final class LocalTieredStorage implements RemoteStorageManager {
                     "configure() is only called once.", storageDirectory.getAbsolutePath()));
         }
 
-        final String storageId = (String) configs.get(STORAGE_ID_PROP);
+        final String storageDir = (String) configs.get(STORAGE_DIR_PROP);
         final String shouldDeleteOnClose = (String) configs.get(DELETE_ON_CLOSE_PROP);
         final String transfererClass = (String) configs.get(TRANSFERER_CLASS_PROP);
         final String isDeleteEnabled = (String) configs.get(ENABLE_DELETE_API_PROP);
-
-        if (storageId == null) {
-            throw new InvalidConfigurationException("No storage id provided: " + STORAGE_ID_PROP);
-        }
 
         if (shouldDeleteOnClose != null) {
             deleteOnClose = Boolean.parseBoolean(shouldDeleteOnClose);
@@ -175,20 +171,29 @@ public final class LocalTieredStorage implements RemoteStorageManager {
             }
         }
 
-        storageDirectory = new File(new File("."), ROOT_STORAGES_DIR_NAME + "/" + storageId);
-        final boolean existed = storageDirectory.exists();
+        if (storageDir == null) {
+            storageDirectory = TestUtils.tempDirectory(ROOT_STORAGES_DIR_NAME + "-");
 
-        if (!existed) {
-            LOGGER.info("Creating directory: " + storageDirectory.getAbsolutePath());
-            storageDirectory.mkdirs();
+            LOGGER.debug(
+                    "No storage directory specified, created temporary directory: {}",
+                    storageDirectory.getAbsolutePath());
 
         } else {
-            LOGGER.warn(format("Remote storage with ID %s already exists on the file system. Any data already in " +
-                    "the remote storage will not be deleted and may result in an inconsistent state and/or provide" +
-                    "stale data.", storageId));
+            storageDirectory = new File(new File("."), ROOT_STORAGES_DIR_NAME + "/" + storageDir);
+            final boolean existed = storageDirectory.exists();
+
+            if (!existed) {
+                LOGGER.info("Creating directory: " + storageDirectory.getAbsolutePath());
+                storageDirectory.mkdirs();
+
+            } else {
+                LOGGER.warn(format("Remote storage with ID %s already exists on the file system. Any data already " +
+                        "in the remote storage will not be deleted and may result in an inconsistent state and/or " +
+                        "provide stale data.", storageDir));
+            }
         }
 
-        LOGGER.info(format("Created local remote storage: %s", storageId));
+        LOGGER.info(format("Created local tiered storage: %s", storageDirectory.getName()));
     }
 
     @Override
