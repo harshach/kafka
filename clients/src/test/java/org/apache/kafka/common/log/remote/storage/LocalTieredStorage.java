@@ -69,38 +69,38 @@ import java.util.concurrent.*;
  * </code>
  */
 public final class LocalTieredStorage implements RemoteStorageManager {
-    public static final String STORAGE_DIR_PROP = "remote.log.storage.local.dir";
-    public static final String DELETE_ON_CLOSE_PROP = "remote.log.storage.local.delete.on.close";
-    public static final String TRANSFERER_CLASS_PROP = "remote.log.storage.local.transferer";
-    public static final String ENABLE_DELETE_API_PROP = "remote.log.storage.local.delete.enable";
-
-    private static final String ROOT_STORAGES_DIR_NAME = "kafka-tiered-storage";
-
-    private static final Logger LOGGER = LoggerFactory.getLogger(LocalTieredStorage.class);
-
     /**
      * The root directory of this storage.
      */
-    private volatile File storageDirectory;
+    public static final String STORAGE_DIR_PROP = "remote.log.storage.local.dir";
 
     /**
      * Delete all files and directories from this storage on close, substantially removing it
      * entirely from the file system.
      */
-    private volatile boolean deleteOnClose = true;
-
-    /**
-     * Whether the deleteLogSegment() implemented by this storage should actually delete data or behave
-     * as a no-operation. This allows to simulate non-strongly consistent storage systems which do not
-     * guarantee visibility of a successful delete for subsequent read or list operations.
-     */
-    private volatile boolean deleteEnabled = true;
+    public static final String DELETE_ON_CLOSE_PROP = "remote.log.storage.local.delete.on.close";
 
     /**
      * The implementation of the transfer of the data of the canonical segment and index files to
      * this storage. The only reason the "transferer" abstraction exists is to be able to simulate
      * file copy errors and exercise the associated failure modes.
      */
+    public static final String TRANSFERER_CLASS_PROP = "remote.log.storage.local.transferer";
+
+    /**
+     * Whether the deleteLogSegment() implemented by this storage should actually delete data or behave
+     * as a no-operation. This allows to simulate non-strongly consistent storage systems which do not
+     * guarantee visibility of a successful delete for subsequent read or list operations.
+     */
+    public static final String ENABLE_DELETE_API_PROP = "remote.log.storage.local.delete.enable";
+
+    private static final String ROOT_STORAGES_DIR_NAME = "kafka-tiered-storage";
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(LocalTieredStorage.class);
+
+    private volatile File storageDirectory;
+    private volatile boolean deleteOnClose = true;
+    private volatile boolean deleteEnabled = true;
     private volatile Transferer transferer = (from, to) -> Files.copy(from.toPath(), to.toPath());
 
     /**
