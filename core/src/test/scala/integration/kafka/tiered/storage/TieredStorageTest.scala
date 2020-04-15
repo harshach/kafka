@@ -8,9 +8,10 @@ import kafka.server.KafkaConfig
 import kafka.utils.TestUtils.createBrokerConfigs
 import org.apache.kafka.common.log.remote.metadata.storage.RLMMWithTopicStorage
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorage
-import org.apache.kafka.common.log.remote.storage.LocalTieredStorage.{DELETE_ON_CLOSE_PROP, STORAGE_ID_PROP}
+import org.apache.kafka.common.log.remote.storage.LocalTieredStorage.{DELETE_ON_CLOSE_PROP, STORAGE_DIR_PROP}
 import org.junit.{After, Test}
 
+import scala.collection.Seq
 import scala.collection.mutable
 
 class TieredStorageTest extends IntegrationTestHarness {
@@ -23,7 +24,7 @@ class TieredStorageTest extends IntegrationTestHarness {
     overridingProps.setProperty(KafkaConfig.RemoteLogManagerTaskIntervalMsProp, 1000.toString)
     overridingProps.setProperty(KafkaConfig.RemoteLogMetadataTopicReplicationFactorProp, 1.toString)
 
-    overridingProps.setProperty(STORAGE_ID_PROP, "tiered-storage-tests")
+    overridingProps.setProperty(STORAGE_DIR_PROP, "tiered-storage-tests")
     overridingProps.setProperty(DELETE_ON_CLOSE_PROP, "true")
 
     createBrokerConfigs(numConfigs = 1, zkConnect).map(KafkaConfig.fromProps(_, overridingProps))
