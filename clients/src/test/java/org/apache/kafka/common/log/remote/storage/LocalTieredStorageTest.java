@@ -53,7 +53,7 @@ public final class LocalTieredStorageTest {
         remoteStorageVerifier = new Verifier(tieredStorage, topicPartition);
 
         Map<String, Object> config = new HashMap<>();
-        config.put(LocalTieredStorage.STORAGE_ID_PROP, generateStorageId());
+        config.put(LocalTieredStorage.STORAGE_DIR_PROP, generateStorageId());
         config.put(LocalTieredStorage.DELETE_ON_CLOSE_PROP, "true");
         config.putAll(extraConfig);
 

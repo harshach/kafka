@@ -27,7 +27,7 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.errors.*;
+import org.apache.kafka.common.errors.InvalidConfigurationException;
 import org.apache.kafka.common.internals.Topic;
 import org.apache.kafka.common.log.remote.storage.RemoteLogMetadataManager;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentId;
