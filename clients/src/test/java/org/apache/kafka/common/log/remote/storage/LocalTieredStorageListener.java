@@ -36,14 +36,16 @@ public interface LocalTieredStorageListener {
     /**
      * Called when the directory hosting segments for a topic-partition has been created.
      */
-    void onTopicPartitionCreated(TopicPartition topicPartition);
+    default void onTopicPartitionCreated(TopicPartition topicPartition) {}
 
     /**
      * Called when a segment has been copied to the local remote storage.
      *
      * @param remoteFileset The set of files offloaded for the segment, including indexes.
      */
-    void onSegmentOffloaded(RemoteLogSegmentFileset remoteFileset);
+    default void onSegmentOffloaded(RemoteLogSegmentFileset remoteFileset) {}
+
+    default void onSegmentFetched(RemoteLogSegmentMetadata metadata, Long startPosition, Long endPosition) {}
 
     /**
      * Delegates to a list of listeners in insertion order.
@@ -74,6 +76,18 @@ public interface LocalTieredStorageListener {
             for (final LocalTieredStorageListener listener: listeners) {
                 try {
                     listener.onSegmentOffloaded(remoteFileset);
+
+                } catch (Exception e) {
+                    LOGGER.error("Caught failure from listener", e);
+                }
+            }
+        }
+
+        @Override
+        public void onSegmentFetched(RemoteLogSegmentMetadata metadata, Long startPosition, Long endPosition) {
+            for (final LocalTieredStorageListener listener: listeners) {
+                try {
+                    listener.onSegmentFetched(metadata, startPosition, endPosition);
 
                 } catch (Exception e) {
                     LOGGER.error("Caught failure from listener", e);

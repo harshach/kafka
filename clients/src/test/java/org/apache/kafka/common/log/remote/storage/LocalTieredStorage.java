@@ -255,6 +255,8 @@ public final class LocalTieredStorage implements RemoteStorageManager {
             // endPosition is ignored at this stage. A wrapper around the file input stream can implement
             // the upper bound on the stream.
 
+            storageListeners.onSegmentFetched(metadata, startPosition, endPosition);
+
             return inputStream;
         });
     }

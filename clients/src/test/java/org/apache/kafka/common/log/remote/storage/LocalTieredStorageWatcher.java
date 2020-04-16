@@ -66,10 +66,6 @@ public final class LocalTieredStorageWatcher {
 
     private final class InternalListener implements LocalTieredStorageListener {
         @Override
-        public void onTopicPartitionCreated(TopicPartition topicPartition) {
-        }
-
-        @Override
         public void onSegmentOffloaded(final RemoteLogSegmentFileset remoteFileset) {
             final RemoteLogSegmentId id = remoteFileset.getRemoteLogSegmentId();
             LOGGER.debug("Segment uploaded to remote storage: {}", id);

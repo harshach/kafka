@@ -27,12 +27,21 @@ final class StorageWatcher(private val storageDirname: String) {
   private val storageDirectory = new File(storageDirname)
 
   /**
-    * InitialTaskDelayMs
+    * InitialTaskDelayMs is set to 30 seconds for the delete-segment scheduler in Apache Kafka.
+    * Hence, we need to wait at least that amount of time before segments eligible for deletion
+    * gets physically removed.
     */
   private val storageWaitTimeoutSec = 35
   private val storagePollPeriodSec = 1
   private val time = Time.SYSTEM
 
+  /**
+    * Wait until the first segment offset in Apache Kafka storage for the given topic-partition is
+    * equal or greater to the provided offset.
+    *
+    * This ensures segments can be retrieved from the local tiered storage when expected.
+    *
+    */
   def waitForEarliestOffset(topicPartition: TopicPartition,
                             offset: Long,
                             timeout: Long = storageWaitTimeoutSec,

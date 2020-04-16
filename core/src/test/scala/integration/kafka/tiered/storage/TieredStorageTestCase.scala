@@ -27,7 +27,7 @@ import org.apache.kafka.clients.consumer.{ConsumerRecord, KafkaConsumer}
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.TopicConfig
-import org.apache.kafka.common.log.remote.storage.{LocalTieredStorage, LocalTieredStorageSnapshot, RemoteLogSegmentFileset}
+import org.apache.kafka.common.log.remote.storage.{LocalTieredStorage, LocalTieredStorageListener, LocalTieredStorageSnapshot, RemoteLogSegmentFileset, RemoteLogSegmentMetadata}
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorageWatcher.newWatcherBuilder
 import org.apache.kafka.common.record.{Record, SimpleRecord}
 import org.apache.kafka.common.serialization.{StringDeserializer, StringSerializer}
@@ -49,7 +49,10 @@ final class TieredStorageTestCase(val recordsToProduce: Map[TopicPartition, Seq[
                                   val tieredStorage: LocalTieredStorage,
                                   val kafkaStorageWatcher: StorageWatcher) {
 
-  val offloadWaitTimeoutSec = 5
+  private val offloadWaitTimeoutSec = 5
+  private val fetchCaptor = new TieredStorageFetchCaptor()
+
+  tieredStorage.addListener(fetchCaptor)
 
   def execute(): Unit = {
     //
@@ -91,6 +94,14 @@ final class TieredStorageTestCase(val recordsToProduce: Map[TopicPartition, Seq[
             .foreach {
               pair => compareRecords(pair._1, pair._2)
             }
+
+          fetchCaptor.getEvents(topicPartition)
+            .zip(specs)
+            .foreach { pair =>
+              val fetchEvent = pair._1
+              val spec = pair._2
+              assertEquals(spec.baseOffset, fetchEvent.metadata.startOffset())
+          }
       }
     }
   }
@@ -104,7 +115,7 @@ final class TieredStorageTestCase(val recordsToProduce: Map[TopicPartition, Seq[
           Option(expected.key())
             .map { key =>
               assertNotNull(actual.key())
-              assertEquals("Key mismatch. Expected: $key", key, actual.key())
+              assertEquals(s"Key mismatch. Expected: $key", key, actual.key())
             }
             .getOrElse {
               assertNull(actual.key())
@@ -143,11 +154,7 @@ final class TieredStorageTestCase(val recordsToProduce: Map[TopicPartition, Seq[
 
     compareRecords(producerRecords.map(simplify), discoveredRecords.map(simplify))
 
-    assertEquals(
-      "Base offset of segment mismatch",
-      spec.baseOffset,
-      discoveredRecords(0).offset()
-    )
+    assertEquals("Base offset of segment mismatch", spec.baseOffset, discoveredRecords(0).offset())
   }
 
   def tearDown(): Unit = {
@@ -269,6 +276,33 @@ object TieredStorageTestCaseBuilder {
                   storage: LocalTieredStorage,
                   kafkaStorageDirectory: String): TieredStorageTestCaseBuilder = {
 
-    new TieredStorageTestCaseBuilder(kafkaServers, zookeeperClient, producerConfig, consumerConfig, storage, kafkaStorageDirectory)
+    new TieredStorageTestCaseBuilder(kafkaServers, zookeeperClient,
+      producerConfig, consumerConfig, storage, kafkaStorageDirectory)
   }
 }
+
+final class TieredStorageFetchCaptor extends LocalTieredStorageListener {
+  private val events = mutable.Map[TopicPartition, mutable.Buffer[TieredStorageFetchEvent]]()
+
+  override def onSegmentFetched(metadata: RemoteLogSegmentMetadata,
+                                startPosition: java.lang.Long,
+                                endPosition: java.lang.Long): Unit = {
+
+    val topicPartition = metadata.remoteLogSegmentId().topicPartition()
+
+    this.synchronized {
+      if (!events.contains(topicPartition)) {
+        events += topicPartition -> mutable.Buffer[TieredStorageFetchEvent]()
+      }
+
+      events(topicPartition) += new TieredStorageFetchEvent(metadata, startPosition, endPosition)
+    }
+  }
+
+  def getEvents(topicPartition: TopicPartition) = events(topicPartition)
+}
+
+final case class TieredStorageFetchEvent(metadata: RemoteLogSegmentMetadata,
+                                         startOffset: Long,
+                                         endOffset: Long)
+
