@@ -126,16 +126,6 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
         log.info("Publishing messages to remote log metadata topic for remote log segment metadata [{}]",
                 remoteLogSegmentMetadata);
 
-        //
-        // duprie@: Had to update the local metadata manager ahead of the metadata topic-partition. We cannot
-        //          wait for the result to propagate back to the metadata manager via the consumer of that
-        //          topic-partition since it can lead to race conditions; and resulted in the offloaded
-        //          segment to be deleted when the metadata was not refreshed and had creationTimestamp == 0,
-        //          which made the remote segment eligible to delete in RLM#handleExpiredRemoteLogSegments().
-        //
-        updateRemoteLogSegmentMetadata(
-                remoteLogSegmentMetadata.remoteLogSegmentId().topicPartition(), remoteLogSegmentMetadata);
-
         RemoteLogSegmentId remoteLogSegmentId = remoteLogSegmentMetadata.remoteLogSegmentId();
         int partitionNo = metadataPartitionFor(remoteLogSegmentId.topicPartition());
         try {
