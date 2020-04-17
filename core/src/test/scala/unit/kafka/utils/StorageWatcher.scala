@@ -1,3 +1,4 @@
+<<<<<<< HEAD:core/src/test/scala/integration/kafka/tiered/storage/StorageWatcher.scala
 /**
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -14,7 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package kafka.tiered.storage
+package unit.kafka.utils
 
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -40,7 +41,6 @@ final class StorageWatcher(private val storageDirname: String) {
     * equal or greater to the provided offset.
     *
     * This ensures segments can be retrieved from the local tiered storage when expected.
-    *
     */
   def waitForEarliestOffset(topicPartition: TopicPartition,
                             offset: Long,
@@ -48,17 +48,35 @@ final class StorageWatcher(private val storageDirname: String) {
                             unit: TimeUnit = TimeUnit.SECONDS): Unit = {
 
     val timer = time.timer(unit.toMillis(timeout))
-    var earliestOffset = 0L
+    var earliestOffset = (0L, Seq[String]())
 
-    while (timer.notExpired() && earliestOffset < offset) {
+    while (timer.notExpired() && earliestOffset._1 < offset) {
       timer.sleep(unit.toMillis(storagePollPeriodSec))
       earliestOffset = getEarliestOffset(topicPartition)
     }
 
-    assert(earliestOffset >= offset)
+    if (earliestOffset._1 < offset) {
+      val sep = System.lineSeparator()
+      val message = s"The base offset of the first log segment of $topicPartition in the log directory is " +
+        s"${earliestOffset._1} which is smaller than the expected pffset $offset. The directory of $topicPartition " +
+        s"is made of the following files: $sep${earliestOffset._2.mkString(sep)}"
+
+      throw new AssertionError(message)
+    }
   }
 
-  private def getEarliestOffset(topicPartition: TopicPartition): Long = {
+  private def getEarliestOffset(topicPartition: TopicPartition): (Long, Seq[String]) = {
+    val topicPartitionFiles = getTopicPartitionFiles(topicPartition)
+
+    val firstLogFile = topicPartitionFiles
+      .filter(_.endsWith(Log.LogFileSuffix))
+      .sorted
+      .head
+
+    (Log.offsetFromFileName(firstLogFile), topicPartitionFiles)
+  }
+
+  private def getTopicPartitionFiles(topicPartition: TopicPartition): Seq[String] = {
     val topicPartitionDir = storageDirectory
       .listFiles()
       .map(_.getName)
@@ -67,14 +85,9 @@ final class StorageWatcher(private val storageDirname: String) {
         throw new IllegalArgumentException(s"Directory for the topic-partition $topicPartition was not found")
       }
 
-    val firstLogFile = new File(storageDirectory, topicPartitionDir)
+    new File(storageDirectory, topicPartitionDir)
       .listFiles()
       .map(_.getName())
-      .filter(_.endsWith(Log.LogFileSuffix))
-      .sorted
-      .head
-
-    Log.offsetFromFileName(firstLogFile)
   }
 
 }

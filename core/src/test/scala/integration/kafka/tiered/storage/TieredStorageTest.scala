@@ -18,7 +18,8 @@ package kafka.tiered.storage
 
 import java.util.Properties
 
-import kafka.tiered.storage.TieredStorageTestCaseBuilder.newTestCase
+import integration.kafka.tiered.storage.TieredStorageTestSpecBuilder.newSpec
+
 import kafka.api.IntegrationTestHarness
 import kafka.server.KafkaConfig
 import kafka.utils.TestUtils.createBrokerConfigs
@@ -26,9 +27,9 @@ import org.apache.kafka.common.log.remote.metadata.storage.RLMMWithTopicStorage
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorage
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorage.{DELETE_ON_CLOSE_PROP, STORAGE_DIR_PROP}
 import org.junit.{After, Test}
+import unit.kafka.utils.StorageWatcher
 
-import scala.collection.Seq
-import scala.collection.mutable
+import scala.collection.{Seq, mutable}
 
 class TieredStorageTest extends IntegrationTestHarness {
 
@@ -40,6 +41,8 @@ class TieredStorageTest extends IntegrationTestHarness {
     overridingProps.setProperty(KafkaConfig.RemoteLogManagerTaskIntervalMsProp, 1000.toString)
     overridingProps.setProperty(KafkaConfig.RemoteLogMetadataTopicReplicationFactorProp, 1.toString)
 
+    overridingProps.setProperty(KafkaConfig.LogCleanupIntervalMsProp, 1000.toString)
+
     overridingProps.setProperty(STORAGE_DIR_PROP, "tiered-storage-tests")
     overridingProps.setProperty(DELETE_ON_CLOSE_PROP, "true")
 
@@ -48,43 +51,41 @@ class TieredStorageTest extends IntegrationTestHarness {
 
   override protected def brokerCount: Int = 1
 
-  private val testCases = mutable.Buffer[TieredStorageTestCase]()
+  private var orchestrator: TieredStorageTestOrchestrator = _
 
   @Test
   def test(): Unit = {
-    val topicA = "topicA"
-    val topicB = "topicB"
-
     val remoteStorage = serverForId(0).get.remoteLogManager.get.storageManager().asInstanceOf[LocalTieredStorage]
-    val kafkaStorageDirectory = configs(0).get(KafkaConfig.LogDirProp).asInstanceOf[String]
+    val storageWatcher = new StorageWatcher(configs(0).get(KafkaConfig.LogDirProp).asInstanceOf[String])
 
-    val testCase = newTestCase(servers, zkClient, producerConfig, consumerConfig, remoteStorage, kafkaStorageDirectory)
+    val specs = mutable.Buffer[TieredStorageTestSpec]()
 
-      .withTopic(topicA, partitions = 1, segmentSize = 1)
-      .producing(topicA, partition = 0, key = "k1", value = "v1")
-      .producing(topicA, partition = 0, key = "k2", value = "v2")
-      .producing(topicA, partition = 0, key = "k3", value = "v3")
-      .expectingSegmentToBeOffloaded(topicA, partition = 0, baseOffset = 0, segmentSize = 1)
-      .expectingSegmentToBeOffloaded(topicA, partition = 0, baseOffset = 1, segmentSize = 1)
+    specs += newSpec(topic = "topicA", partitionsCount = 1, replicationFactor = 1)
+      .withSegmentSize(1)
+      .producing(0, "k1", "v1")
+      .producing(0, "k2", "v2")
+      .producing(0, "k3", "v3")
+      .expectingSegmentToBeOffloaded(0, baseOffset = 0, segmentSize = 1)
+      .expectingSegmentToBeOffloaded(0, baseOffset = 1, segmentSize = 1)
+      .build()
 
-      .withTopic(topicB, partitions = 1, segmentSize = 2)
-      .producing(topicB, partition = 0, key = "k1", value = "v1")
-      .producing(topicB, partition = 0, key = "k2", value = "v2")
-      .producing(topicB, partition = 0, key = "k3", value = "v3")
-      .expectingSegmentToBeOffloaded(topicB, partition = 0, baseOffset = 0, segmentSize = 2)
+    specs += newSpec(topic = "topicB", partitionsCount = 1, replicationFactor = 1)
+      .withSegmentSize(2)
+      .producing(0, "k1", "v1")
+      .producing(0, "k2", "v2")
+      .producing(0, "k3", "v3")
+      .expectingSegmentToBeOffloaded(0, baseOffset = 0, segmentSize = 2)
+      .build()
 
-      .create()
-
-    testCases += testCase
-
-    testCase.execute()
-    testCase.verify()
-
+    orchestrator = new TieredStorageTestOrchestrator(specs, remoteStorage, storageWatcher, producerConfig, consumerConfig)
+    orchestrator.execute(zkClient, servers)
   }
 
   @After
   override def tearDown(): Unit = {
-    testCases.foreach(_.tearDown())
+    if (orchestrator != null) {
+      orchestrator.tearDown()
+    }
     super.tearDown()
   }
 
