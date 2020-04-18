@@ -28,7 +28,7 @@ import org.apache.kafka.common.log.remote.storage.LocalTieredStorage
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorage.{DELETE_ON_CLOSE_PROP, STORAGE_DIR_PROP}
 import org.apache.kafka.common.replica.ReplicaSelector
 import org.junit.{After, Before, Test}
-import unit.kafka.utils.BrokerStorageWatcher
+import unit.kafka.utils.BrokerLocalStorage
 
 import scala.collection.{Seq, mutable}
 
@@ -65,14 +65,16 @@ abstract class TieredStorageTestHarness extends IntegrationTestHarness {
   override def setUp(): Unit = {
     super.setUp()
 
-    val remoteStorage = servers.map { server =>
+    val remoteStorages = servers.map { server =>
       server.config.brokerId -> server.remoteLogManager.get.storageManager().asInstanceOf[LocalTieredStorage]
     }.toMap
 
-    val storageWatchers = servers.map(_.config).map(cfg => cfg.brokerId -> new BrokerStorageWatcher(cfg.logDirs(0))).toMap
+    val localStorages = servers.map(_.config).map { config =>
+      config.brokerId -> new BrokerLocalStorage(config.logDirs(0))
+    }.toMap
 
     orchestrator = new TieredStorageTestOrchestrator(
-      createAdminClient(), zkClient, servers,remoteStorage, storageWatchers, producerConfig, consumerConfig)
+      createAdminClient(), zkClient, servers, remoteStorages, localStorages, producerConfig, consumerConfig)
   }
 
   @Test

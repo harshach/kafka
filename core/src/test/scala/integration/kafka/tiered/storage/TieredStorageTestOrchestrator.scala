@@ -17,7 +17,7 @@ import org.apache.kafka.common.utils.Utils
 import org.hamcrest.MatcherAssert.assertThat
 import org.junit.Assert.assertEquals
 import unit.kafka.utils.RecordsMatcher.correspondTo
-import unit.kafka.utils.BrokerStorageWatcher
+import unit.kafka.utils.BrokerLocalStorage
 
 import scala.collection.JavaConverters._
 import scala.collection.Seq
@@ -41,7 +41,7 @@ final class TieredStorageTestOrchestrator(val admin: Admin,
                                           val zookeeperClient: KafkaZkClient,
                                           val kafkaServers: Seq[KafkaServer],
                                           val tieredStorages: Map[Int, LocalTieredStorage],
-                                          val kafkaStorageWatchers: Map[Int, BrokerStorageWatcher],
+                                          val localStorages: Map[Int, BrokerLocalStorage],
                                           val producerConfig: Properties,
                                           val consumerConfig: Properties) {
 
@@ -85,7 +85,7 @@ final class TieredStorageTestOrchestrator(val admin: Admin,
       _ match {
         case (partition, producedRecords) =>
           val topicPartition = new TopicPartition(spec.topic, partition)
-          kafkaStorageWatchers.map(_._2.waitForEarliestOffset(topicPartition, 1L))
+          localStorages.map(_._2.waitForEarliestOffset(topicPartition, 1L))
 
           val consumer = new KafkaConsumer[String, String](consumerConfig, new StringDeserializer, new StringDeserializer)
 

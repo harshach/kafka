@@ -24,7 +24,7 @@ import kafka.log.Log
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.utils.Time
 
-final class BrokerStorageWatcher(private val storageDirname: String) {
+final class BrokerLocalStorage(private val storageDirname: String) {
   private val brokerStorageDirectory = new File(storageDirname)
 
   /**
