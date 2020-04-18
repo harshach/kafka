@@ -6,6 +6,7 @@ import java.util.concurrent.TimeUnit
 import kafka.server.KafkaServer
 import kafka.utils.TestUtils
 import kafka.zk.KafkaZkClient
+import org.apache.kafka.clients.admin.Admin
 import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.common.TopicPartition
@@ -16,7 +17,7 @@ import org.apache.kafka.common.utils.Utils
 import org.hamcrest.MatcherAssert.assertThat
 import org.junit.Assert.assertEquals
 import unit.kafka.utils.RecordsMatcher.correspondTo
-import unit.kafka.utils.StorageWatcher
+import unit.kafka.utils.BrokerStorageWatcher
 
 import scala.collection.JavaConverters._
 import scala.collection.Seq
@@ -36,25 +37,29 @@ import scala.collection.Seq
   * 4) Verify records from Kafka and the [[LocalTieredStorage]].
   */
 // TODO(duprie) Document.
-final class TieredStorageTestOrchestrator(val zookeeperClient: KafkaZkClient,
+final class TieredStorageTestOrchestrator(val admin: Admin,
+                                          val zookeeperClient: KafkaZkClient,
                                           val kafkaServers: Seq[KafkaServer],
-                                          val tieredStorage: LocalTieredStorage,
-                                          val kafkaStorageWatcher: StorageWatcher,
+                                          val tieredStorages: Map[Int, LocalTieredStorage],
+                                          val kafkaStorageWatchers: Map[Int, BrokerStorageWatcher],
                                           val producerConfig: Properties,
                                           val consumerConfig: Properties) {
 
   private val offloadWaitTimeoutSec = 20
 
-  private val fetchCaptor = new TieredStorageFetchCaptor()
+  private val tieredStorageFetchCaptors: Map[Int, TieredStorageFetchCaptor] = tieredStorages.map {
+    case (brokerId, tieredStorage) =>
+      val captor = new TieredStorageFetchCaptor()
+      tieredStorage.addListener(captor)
+      brokerId -> captor
+  }
 
   val producer = new KafkaProducer[String, String](producerConfig,
     Serdes.String().serializer(), Serdes.String().serializer())
 
-  tieredStorage.addListener(fetchCaptor)
-
   def execute(specs: Seq[TieredStorageTestSpec]): Unit = {
     specs.foreach { spec =>
-      spec.configure(zookeeperClient, kafkaServers)
+      spec.configure(admin, zookeeperClient, kafkaServers)
       execute(spec)
     }
   }
@@ -69,7 +74,7 @@ final class TieredStorageTestOrchestrator(val zookeeperClient: KafkaZkClient,
       spec.offloadedSegments.foreach {
         x => watcherBuilder.addSegmentsToWaitFor(new TopicPartition(spec.topic, x._1), x._2.length)
       }
-      watcherBuilder.create(tieredStorage)
+      watcherBuilder.create(tieredStorages(0))
     }
 
     spec.produce(producer)
@@ -80,7 +85,7 @@ final class TieredStorageTestOrchestrator(val zookeeperClient: KafkaZkClient,
       _ match {
         case (partition, producedRecords) =>
           val topicPartition = new TopicPartition(spec.topic, partition)
-          kafkaStorageWatcher.waitForEarliestOffset(topicPartition, 1L)
+          kafkaStorageWatchers.map(_._2.waitForEarliestOffset(topicPartition, 1L))
 
           val consumer = new KafkaConsumer[String, String](consumerConfig, new StringDeserializer, new StringDeserializer)
 
@@ -91,7 +96,7 @@ final class TieredStorageTestOrchestrator(val zookeeperClient: KafkaZkClient,
       }
     }
 
-    val snapshot = LocalTieredStorageSnapshot.takeSnapshot(tieredStorage)
+    val snapshot = LocalTieredStorageSnapshot.takeSnapshot(tieredStorages(0))
 
     spec.offloadedSegments.foreach {
       _ match {
@@ -102,10 +107,10 @@ final class TieredStorageTestOrchestrator(val zookeeperClient: KafkaZkClient,
             .sortWith((x, y) => x.getRecords.get(0).offset() <= y.getRecords.get(0).offset())
             .zip(specs)
             .foreach {
-              pair => compareRecords(pair._1, pair._2)
+              pair => compareRecords(pair._1, pair._2, spec.topic)
             }
 
-          fetchCaptor.getEvents(topicPartition)
+          tieredStorageFetchCaptors.last._2.getEvents(topicPartition)
             .zip(specs)
             .foreach { pair =>
               val fetchEvent = pair._1
@@ -116,14 +121,14 @@ final class TieredStorageTestOrchestrator(val zookeeperClient: KafkaZkClient,
     }
   }
 
-  private def compareRecords(fileset: RemoteLogSegmentFileset, spec: OffloadedSegmentSpec): Unit = {
+  private def compareRecords(fileset: RemoteLogSegmentFileset, spec: OffloadedSegmentSpec, topic: String): Unit = {
     // Records found in the local tiered storage.
     val discoveredRecords = fileset.getRecords.asScala
 
     // Records expected to be found, based on what was sent by the producer.
     val producerRecords = spec.records
 
-    assertThat(producerRecords, correspondTo(discoveredRecords, "", Serdes.String(), Serdes.String()))
+    assertThat(producerRecords, correspondTo(discoveredRecords, topic, Serdes.String(), Serdes.String()))
     assertEquals("Base offset of segment mismatch", spec.baseOffset, discoveredRecords(0).offset())
   }
 

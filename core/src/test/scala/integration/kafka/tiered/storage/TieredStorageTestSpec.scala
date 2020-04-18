@@ -2,12 +2,13 @@ package integration.kafka.tiered.storage
 
 import java.util.Properties
 
+import kafka.admin.{AdminUtils, BrokerMetadata}
 import kafka.server.KafkaServer
 import kafka.utils.TestUtils
 import kafka.zk.KafkaZkClient
+import org.apache.kafka.clients.admin.Admin
 import org.apache.kafka.clients.consumer.{ConsumerRecord, KafkaConsumer}
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
-import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.TopicConfig
 
 import scala.collection.{Seq, mutable}
@@ -31,7 +32,7 @@ final class TieredStorageTestSpec(builder: TieredStorageTestSpecBuilder) {
   val recordsToProduce: Map[Int, Seq[ProducerRecord[String, String]]] = builder.recordsToProduce
   val offloadedSegments: Map[Int, Seq[OffloadedSegmentSpec]] = builder.offloadedSegmentSpec
 
-  def configure(zookeeperClient: KafkaZkClient, kafkaServers: Seq[KafkaServer]): Unit = {
+  def configure(admin: Admin, zookeeperClient: KafkaZkClient, kafkaServers: Seq[KafkaServer]): Unit = {
     val topicProps = new Properties()
 
     //
@@ -61,7 +62,10 @@ final class TieredStorageTestSpec(builder: TieredStorageTestSpecBuilder) {
       topicProps.put(TopicConfig.RETENTION_BYTES_CONFIG, 1.toString)
     }
 
-    TestUtils.createTopic(zookeeperClient, topic, partitionCount, replicationFactor, kafkaServers, topicProps)
+    val brokerMetadatas = kafkaServers(0).metadataCache.getAliveBrokers.map(b => BrokerMetadata(b.id, b.rack))
+    val assignments = AdminUtils.assignReplicasToBrokers(brokerMetadatas, partitionCount, replicationFactor, 0, 0)
+
+    TestUtils.createTopic(zookeeperClient, topic, assignments, kafkaServers, topicProps)
   }
 
   def getNumberOfRecordsToProduce(): Int = recordsToProduce.size

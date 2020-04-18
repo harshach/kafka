@@ -24,8 +24,8 @@ import kafka.log.Log
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.utils.Time
 
-final class StorageWatcher(private val storageDirname: String) {
-  private val storageDirectory = new File(storageDirname)
+final class BrokerStorageWatcher(private val storageDirname: String) {
+  private val brokerStorageDirectory = new File(storageDirname)
 
   /**
     * InitialTaskDelayMs is set to 30 seconds for the delete-segment scheduler in Apache Kafka.
@@ -77,7 +77,7 @@ final class StorageWatcher(private val storageDirname: String) {
   }
 
   private def getTopicPartitionFiles(topicPartition: TopicPartition): Seq[String] = {
-    val topicPartitionDir = storageDirectory
+    val topicPartitionDir = brokerStorageDirectory
       .listFiles()
       .map(_.getName)
       .find(_ == topicPartition.toString)
@@ -85,7 +85,7 @@ final class StorageWatcher(private val storageDirname: String) {
         throw new IllegalArgumentException(s"Directory for the topic-partition $topicPartition was not found")
       }
 
-    new File(storageDirectory, topicPartitionDir)
+    new File(brokerStorageDirectory, topicPartitionDir)
       .listFiles()
       .map(_.getName())
   }

@@ -26,8 +26,9 @@ import kafka.utils.TestUtils.createBrokerConfigs
 import org.apache.kafka.common.log.remote.metadata.storage.RLMMWithTopicStorage
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorage
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorage.{DELETE_ON_CLOSE_PROP, STORAGE_DIR_PROP}
+import org.apache.kafka.common.replica.ReplicaSelector
 import org.junit.{After, Before, Test}
-import unit.kafka.utils.StorageWatcher
+import unit.kafka.utils.BrokerStorageWatcher
 
 import scala.collection.{Seq, mutable}
 
@@ -46,13 +47,17 @@ abstract class TieredStorageTestHarness extends IntegrationTestHarness {
 
     overridingProps.setProperty(KafkaConfig.LogCleanupIntervalMsProp, 1000.toString)
 
+    readReplicaSelectorClass.foreach(c => overridingProps.put(KafkaConfig.ReplicaSelectorClassProp, c.getName))
+
     overridingProps.setProperty(STORAGE_DIR_PROP, "tiered-storage-tests")
     overridingProps.setProperty(DELETE_ON_CLOSE_PROP, "true")
 
-    createBrokerConfigs(numConfigs = 1, zkConnect).map(KafkaConfig.fromProps(_, overridingProps))
+    createBrokerConfigs(numConfigs = brokerCount, zkConnect).map(KafkaConfig.fromProps(_, overridingProps))
   }
 
   private var orchestrator: TieredStorageTestOrchestrator = _
+
+  protected def readReplicaSelectorClass: Option[Class[_ <: ReplicaSelector]] = None
 
   protected def writeTestSpecifications(specs: mutable.Buffer[TieredStorageTestSpec]): Unit
 
@@ -60,18 +65,20 @@ abstract class TieredStorageTestHarness extends IntegrationTestHarness {
   override def setUp(): Unit = {
     super.setUp()
 
-    val remoteStorage = serverForId(0).get.remoteLogManager.get.storageManager().asInstanceOf[LocalTieredStorage]
-    val storageWatcher = new StorageWatcher(configs(0).get(KafkaConfig.LogDirProp).asInstanceOf[String])
+    val remoteStorage = servers.map { server =>
+      server.config.brokerId -> server.remoteLogManager.get.storageManager().asInstanceOf[LocalTieredStorage]
+    }.toMap
+
+    val storageWatchers = servers.map(_.config).map(cfg => cfg.brokerId -> new BrokerStorageWatcher(cfg.logDirs(0))).toMap
 
     orchestrator = new TieredStorageTestOrchestrator(
-      zkClient, servers,remoteStorage, storageWatcher, producerConfig, consumerConfig)
+      createAdminClient(), zkClient, servers,remoteStorage, storageWatchers, producerConfig, consumerConfig)
   }
 
   @Test
   def executeTieredStorageTest(): Unit = {
     val specs = mutable.Buffer[TieredStorageTestSpec]()
     writeTestSpecifications(specs)
-
     orchestrator.execute(specs)
   }
 
