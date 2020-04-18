@@ -3,7 +3,6 @@ package integration.kafka.tiered.storage
 import java.util.Properties
 import java.util.concurrent.TimeUnit
 
-import integration.kafka.tiered.storage.RecordsMatcher.correspondTo
 import kafka.server.KafkaServer
 import kafka.utils.TestUtils
 import kafka.zk.KafkaZkClient
@@ -16,17 +15,29 @@ import org.apache.kafka.common.serialization.{Serdes, StringDeserializer}
 import org.apache.kafka.common.utils.Utils
 import org.hamcrest.MatcherAssert.assertThat
 import org.junit.Assert.assertEquals
+import unit.kafka.utils.RecordsMatcher.correspondTo
 import unit.kafka.utils.StorageWatcher
 
 import scala.collection.JavaConverters._
 import scala.collection.Seq
 
 /**
-  * Helps define the specifications of a test case to exercise the support for tiered storage in Apache Kafka.
-  * This class encapsulates the execution of the tests and the assertions which ensure the tiered storage was
-  * exercised as expected.
+  * This orchestrator is responsible for the execution of a test case against physical Apache Kafka broker(s)
+  * backed by a [[LocalTieredStorage]].
+  *
+  * It collaborates with [[TieredStorageTestSpec]] which provides it with the configuration of the topic to
+  * create, the records to send, and expectations on the results.
+  *
+  * As of now, the orchestrator always goes through the following steps:
+  *
+  * 1) Create a topic;
+  * 2) Produce records;
+  * 3) Consume records;
+  * 4) Verify records from Kafka and the [[LocalTieredStorage]].
   */
-final class TieredStorageTestOrchestrator(val specs: Seq[TieredStorageTestSpec],
+// TODO(duprie) Document.
+final class TieredStorageTestOrchestrator(val zookeeperClient: KafkaZkClient,
+                                          val kafkaServers: Seq[KafkaServer],
                                           val tieredStorage: LocalTieredStorage,
                                           val kafkaStorageWatcher: StorageWatcher,
                                           val producerConfig: Properties,
@@ -41,7 +52,7 @@ final class TieredStorageTestOrchestrator(val specs: Seq[TieredStorageTestSpec],
 
   tieredStorage.addListener(fetchCaptor)
 
-  def execute(zookeeperClient: KafkaZkClient, kafkaServers: Seq[KafkaServer]): Unit = {
+  def execute(specs: Seq[TieredStorageTestSpec]): Unit = {
     specs.foreach { spec =>
       spec.configure(zookeeperClient, kafkaServers)
       execute(spec)

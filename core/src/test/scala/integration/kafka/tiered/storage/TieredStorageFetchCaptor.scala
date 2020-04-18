@@ -5,6 +5,9 @@ import org.apache.kafka.common.log.remote.storage.{LocalTieredStorageListener, R
 
 import scala.collection.{Seq, mutable}
 
+//
+// TODO(duprie): move this to clients, augment to support fetch of indexes
+//
 final class TieredStorageFetchCaptor extends LocalTieredStorageListener {
   /* @GuardedBy("this") */
   private val events = mutable.Map[TopicPartition, mutable.Buffer[TieredStorageFetchEvent]]()

@@ -26,12 +26,15 @@ import kafka.utils.TestUtils.createBrokerConfigs
 import org.apache.kafka.common.log.remote.metadata.storage.RLMMWithTopicStorage
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorage
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorage.{DELETE_ON_CLOSE_PROP, STORAGE_DIR_PROP}
-import org.junit.{After, Test}
+import org.junit.{After, Before, Test}
 import unit.kafka.utils.StorageWatcher
 
 import scala.collection.{Seq, mutable}
 
-class TieredStorageTest extends IntegrationTestHarness {
+/**
+  * Base class for integration tests exercising the tiered storage functionality in Apache Kafka.
+  */
+abstract class TieredStorageTestHarness extends IntegrationTestHarness {
 
   override def generateConfigs: Seq[KafkaConfig] = {
     val overridingProps = new Properties()
@@ -49,36 +52,27 @@ class TieredStorageTest extends IntegrationTestHarness {
     createBrokerConfigs(numConfigs = 1, zkConnect).map(KafkaConfig.fromProps(_, overridingProps))
   }
 
-  override protected def brokerCount: Int = 1
-
   private var orchestrator: TieredStorageTestOrchestrator = _
 
-  @Test
-  def test(): Unit = {
+  protected def writeTestSpecifications(specs: mutable.Buffer[TieredStorageTestSpec]): Unit
+
+  @Before
+  override def setUp(): Unit = {
+    super.setUp()
+
     val remoteStorage = serverForId(0).get.remoteLogManager.get.storageManager().asInstanceOf[LocalTieredStorage]
     val storageWatcher = new StorageWatcher(configs(0).get(KafkaConfig.LogDirProp).asInstanceOf[String])
 
+    orchestrator = new TieredStorageTestOrchestrator(
+      zkClient, servers,remoteStorage, storageWatcher, producerConfig, consumerConfig)
+  }
+
+  @Test
+  def executeTieredStorageTest(): Unit = {
     val specs = mutable.Buffer[TieredStorageTestSpec]()
+    writeTestSpecifications(specs)
 
-    specs += newSpec(topic = "topicA", partitionsCount = 1, replicationFactor = 1)
-      .withSegmentSize(1)
-      .producing(0, "k1", "v1")
-      .producing(0, "k2", "v2")
-      .producing(0, "k3", "v3")
-      .expectingSegmentToBeOffloaded(0, baseOffset = 0, segmentSize = 1)
-      .expectingSegmentToBeOffloaded(0, baseOffset = 1, segmentSize = 1)
-      .build()
-
-    specs += newSpec(topic = "topicB", partitionsCount = 1, replicationFactor = 1)
-      .withSegmentSize(2)
-      .producing(0, "k1", "v1")
-      .producing(0, "k2", "v2")
-      .producing(0, "k3", "v3")
-      .expectingSegmentToBeOffloaded(0, baseOffset = 0, segmentSize = 2)
-      .build()
-
-    orchestrator = new TieredStorageTestOrchestrator(specs, remoteStorage, storageWatcher, producerConfig, consumerConfig)
-    orchestrator.execute(zkClient, servers)
+    orchestrator.execute(specs)
   }
 
   @After

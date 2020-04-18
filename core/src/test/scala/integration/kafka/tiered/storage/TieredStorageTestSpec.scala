@@ -16,6 +16,11 @@ sealed trait StorageType
 case object LocalStorage extends StorageType
 case object RemoteStorage extends StorageType
 
+/**
+  * Defines a complete use case which exercises the tiered storage functionality in Apache Kafka.
+  * It is used by the [[TieredStorageTestOrchestrator]] to provide the configurations, records
+  * to create, and the expectations on the result of the test.
+  */
 final class TieredStorageTestSpec(builder: TieredStorageTestSpecBuilder) {
   val topic: String = builder.topic
   val partitionCount: Int = builder.partitionsCount
@@ -61,16 +66,6 @@ final class TieredStorageTestSpec(builder: TieredStorageTestSpecBuilder) {
 
   def getNumberOfRecordsToProduce(): Int = recordsToProduce.size
 
-  def getExpectedLogStartOffset(storageType: StorageType): Long = {
-    storageType match {
-      case LocalStorage => 0
-      case RemoteStorage => 0
-      case _ => throw new IllegalArgumentException(s"Invalid storage: $storageType")
-    }
-
-    getNumberOfRecordsToProduce() / segmentSize
-  }
-
   def produce(producer: KafkaProducer[String, String]): Unit = {
     recordsToProduce.values.flatten.foreach(producer.send(_).get())
   }
@@ -86,6 +81,10 @@ final case class OffloadedSegmentSpec(val partition: Int,
 
 final class RemoteFetchRequestSpec(val fetchOffset: Long, val leaderEpoch: Long)
 
+/**
+  * This builder helps to formulate a test case exercising the tiered storage functionality and formulate
+  * the expectations following the execution of the test.
+  */
 final class TieredStorageTestSpecBuilder(val topic: String,
                                          val partitionsCount: Int,
                                          val replicationFactor: Int) {
