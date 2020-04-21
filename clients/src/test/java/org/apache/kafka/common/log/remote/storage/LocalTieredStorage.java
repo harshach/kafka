@@ -42,6 +42,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 
+import static org.apache.kafka.common.log.remote.storage.LocalTieredStorageEvent.EventType.*;
+
 /**
  * An implementation of {@link RemoteStorageManager} which relies on the local file system to store
  * offloaded log segments and associated data.
@@ -109,12 +111,19 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     private volatile boolean deleteOnClose = true;
     private volatile boolean deleteEnabled = true;
     private volatile Transferer transferer = (from, to) -> Files.copy(from.toPath(), to.toPath());
+    private volatile int brokerId;
 
     /**
      * Used to notify users of this storage of internal updates - new topic-partition recorded (upon directory
      * creation) and segment file written (upon segment file write(2)).
      */
     private final LocalTieredStorageListeners storageListeners = new LocalTieredStorageListeners();
+
+    private final LocalTieredStorageHistory history = new LocalTieredStorageHistory();
+
+    public LocalTieredStorage() {
+        addListener(history.new InternalListener());
+    }
 
     /**
      * Walks through this storage and notify the traverser of every topic-partition, segment and record discovered.
@@ -207,21 +216,19 @@ public final class LocalTieredStorage implements RemoteStorageManager {
             throws RemoteStorageException {
 
         return wrap(() -> {
-            final RemoteLogSegmentFileset remoteSegmentFileset = openFileset(storageDirectory, id);
+            RemoteLogSegmentFileset fileset = null;
 
             try {
-                if (!remoteSegmentFileset.getPartitionDirectory().didExist()) {
-                    storageListeners.onTopicPartitionCreated(id.topicPartition());
-                }
+                fileset = openFileset(storageDirectory, id);
 
                 LOGGER.info("Transferring log segment for topic={} partition={} from offset={}",
                         id.topicPartition().topic(),
                         id.topicPartition().partition(),
                         data.logSegment().getName().split("\\.")[0]);
 
-                remoteSegmentFileset.copy(transferer, data);
+                fileset.copy(transferer, data);
 
-                storageListeners.onSegmentOffloaded(remoteSegmentFileset);
+                storageListeners.onStorageEvent(new LocalTieredStorageEvent(OFFLOAD_SEGMENT, brokerId, id, fileset, null));
 
             } catch (final Exception e) {
                 //
@@ -230,7 +237,12 @@ public final class LocalTieredStorage implements RemoteStorageManager {
                 // before the exception was hit. The exception is re-thrown as no remediation is expected in
                 // the current scope.
                 //
-                remoteSegmentFileset.delete();
+                if (fileset != null) {
+                    fileset.delete();
+                }
+
+                storageListeners.onStorageEvent(new LocalTieredStorageEvent(OFFLOAD_SEGMENT, brokerId, id, fileset, e));
+
                 throw e;
             }
 
@@ -240,40 +252,66 @@ public final class LocalTieredStorage implements RemoteStorageManager {
 
     @Override
     public InputStream fetchLogSegmentData(final RemoteLogSegmentMetadata metadata,
-                                           final Long startPosition,
-                                           final Long endPosition) throws RemoteStorageException {
-        checkArgument(startPosition >= 0, "Start position must be positive", startPosition);
-        if (endPosition != null) {
-            checkArgument(endPosition >= startPosition,
-                    "End position cannot be less than startPosition", startPosition, endPosition);
+                                           final Long startPos,
+                                           final Long endPos) throws RemoteStorageException {
+        checkArgument(startPos >= 0, "Start position must be positive", startPos);
+        if (endPos != null) {
+            checkArgument(endPos >= startPos,
+                    "End position cannot be less than startPosition", startPos, endPos);
         }
         return wrap(() -> {
-            final RemoteLogSegmentFileset fileset = openFileset(storageDirectory, metadata.remoteLogSegmentId());
-            final InputStream inputStream = newInputStream(fileset.getFile(SEGMENT).toPath(), READ);
-            inputStream.skip(startPosition);
+            try {
+                final RemoteLogSegmentFileset fileset = openFileset(storageDirectory, metadata.remoteLogSegmentId());
+                final InputStream inputStream = newInputStream(fileset.getFile(SEGMENT).toPath(), READ);
+                inputStream.skip(startPos);
 
-            // endPosition is ignored at this stage. A wrapper around the file input stream can implement
-            // the upper bound on the stream.
+                // endPosition is ignored at this stage. A wrapper around the file input stream can implement
+                // the upper bound on the stream.
 
-            storageListeners.onSegmentFetched(metadata, startPosition, endPosition);
+                storageListeners.onStorageEvent(new LocalTieredStorageEvent(FETCH_SEGMENT, brokerId, fileset, metadata, startPos, endPos));
 
-            return inputStream;
+                return inputStream;
+
+            } catch (final Exception e) {
+                storageListeners.onStorageEvent(new LocalTieredStorageEvent(FETCH_SEGMENT, brokerId, metadata, startPos, endPos, e));
+                throw e;
+            }
         });
     }
 
     @Override
     public InputStream fetchOffsetIndex(final RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         return wrap(() -> {
-            final RemoteLogSegmentFileset fileset = openFileset(storageDirectory, metadata.remoteLogSegmentId());
-            return newInputStream(fileset.getFile(OFFSET_INDEX).toPath(), READ);
+            try {
+                final RemoteLogSegmentFileset fileset = openFileset(storageDirectory, metadata.remoteLogSegmentId());
+                final InputStream inputStream = newInputStream(fileset.getFile(OFFSET_INDEX).toPath(), READ);
+
+                storageListeners.onStorageEvent(new LocalTieredStorageEvent(FETCH_OFFSET_INDEX, brokerId, fileset, metadata));
+
+                return inputStream;
+
+            } catch (final Exception e) {
+                storageListeners.onStorageEvent(new LocalTieredStorageEvent(FETCH_OFFSET_INDEX, brokerId, metadata, e));
+                throw e;
+            }
         });
     }
 
     @Override
     public InputStream fetchTimestampIndex(final RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         return wrap(() -> {
-            final RemoteLogSegmentFileset fileset = openFileset(storageDirectory, metadata.remoteLogSegmentId());
-            return newInputStream(fileset.getFile(TIME_INDEX).toPath(), READ);
+            try {
+                final RemoteLogSegmentFileset fileset = openFileset(storageDirectory, metadata.remoteLogSegmentId());
+                final InputStream inputStream = newInputStream(fileset.getFile(TIME_INDEX).toPath(), READ);
+
+                storageListeners.onStorageEvent(new LocalTieredStorageEvent(FETCH_TIME_INDEX, brokerId, fileset, metadata));
+
+                return inputStream;
+
+            } catch (final Exception e) {
+                storageListeners.onStorageEvent(new LocalTieredStorageEvent(FETCH_TIME_INDEX, brokerId, metadata, e));
+                throw e;
+            }
         });
     }
 
@@ -281,10 +319,19 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     public void deleteLogSegment(final RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         wrap(() -> {
             if (deleteEnabled) {
-                final RemoteLogSegmentFileset remote = openFileset(storageDirectory, metadata.remoteLogSegmentId());
-                if (!remote.delete()) {
-                    throw new RemoteStorageException("Failed to delete remote log segment with id:" +
-                            metadata.remoteLogSegmentId());
+                try {
+                    final RemoteLogSegmentFileset fileset = openFileset(storageDirectory, metadata.remoteLogSegmentId());
+
+                    if (!fileset.delete()) {
+                        throw new RemoteStorageException("Failed to delete remote log segment with id:" +
+                                metadata.remoteLogSegmentId());
+                    }
+
+                    storageListeners.onStorageEvent(new LocalTieredStorageEvent(DELETE_SEGMENT, brokerId, fileset, metadata));
+
+                } catch (final Exception e) {
+                    storageListeners.onStorageEvent(new LocalTieredStorageEvent(DELETE_SEGMENT, brokerId, metadata, e));
+                    throw e;
                 }
             }
             return null;
@@ -329,8 +376,16 @@ public final class LocalTieredStorage implements RemoteStorageManager {
         }
     }
 
+    public LocalTieredStorageHistory getHistory() {
+        return history;
+    }
+
     String getStorageDirectoryRoot() throws RemoteStorageException {
         return wrap(() -> storageDirectory.getAbsolutePath());
+    }
+
+    int getBrokerId() {
+        return brokerId;
     }
 
     private <U> U wrap(Callable<U> f) throws RemoteStorageException {

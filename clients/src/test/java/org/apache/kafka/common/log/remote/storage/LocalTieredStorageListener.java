@@ -16,7 +16,7 @@
  */
 package org.apache.kafka.common.log.remote.storage;
 
-import org.apache.kafka.common.TopicPartition;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,19 +33,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 public interface LocalTieredStorageListener {
 
-    /**
-     * Called when the directory hosting segments for a topic-partition has been created.
-     */
-    default void onTopicPartitionCreated(TopicPartition topicPartition) {}
-
-    /**
-     * Called when a segment has been copied to the local remote storage.
-     *
-     * @param remoteFileset The set of files offloaded for the segment, including indexes.
-     */
-    default void onSegmentOffloaded(RemoteLogSegmentFileset remoteFileset) {}
-
-    default void onSegmentFetched(RemoteLogSegmentMetadata metadata, Long startPosition, Long endPosition) {}
+    void onStorageEvent(LocalTieredStorageEvent event);
 
     /**
      * Delegates to a list of listeners in insertion order.
@@ -60,34 +48,10 @@ public interface LocalTieredStorageListener {
         }
 
         @Override
-        public void onTopicPartitionCreated(final TopicPartition topicPartition) {
+        public void onStorageEvent(final LocalTieredStorageEvent event) {
             for (final LocalTieredStorageListener listener: listeners) {
                 try {
-                    listener.onTopicPartitionCreated(topicPartition);
-
-                } catch (Exception e) {
-                    LOGGER.error("Caught failure from listener", e);
-                }
-            }
-        }
-
-        @Override
-        public void onSegmentOffloaded(RemoteLogSegmentFileset remoteFileset) {
-            for (final LocalTieredStorageListener listener: listeners) {
-                try {
-                    listener.onSegmentOffloaded(remoteFileset);
-
-                } catch (Exception e) {
-                    LOGGER.error("Caught failure from listener", e);
-                }
-            }
-        }
-
-        @Override
-        public void onSegmentFetched(RemoteLogSegmentMetadata metadata, Long startPosition, Long endPosition) {
-            for (final LocalTieredStorageListener listener: listeners) {
-                try {
-                    listener.onSegmentFetched(metadata, startPosition, endPosition);
+                    listener.onStorageEvent(event);
 
                 } catch (Exception e) {
                     LOGGER.error("Caught failure from listener", e);
