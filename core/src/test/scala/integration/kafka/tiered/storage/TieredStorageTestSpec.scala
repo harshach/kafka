@@ -30,7 +30,7 @@ final class TieredStorageTestSpec(builder: TieredStorageTestSpecBuilder) {
   val fetchMaxBytes: Int = builder.fetchMaxBytes
   val deleteSegmentsAfterOffload: Boolean = builder.deleteSegmentsAfterOffload
   val recordsToProduce: Map[Int, Seq[ProducerRecord[String, String]]] = builder.recordsToProduce
-  val offloadedSegments: Map[Int, Seq[OffloadedSegmentSpec]] = builder.offloadedSegmentSpec
+  val offloadedSegmentSpecs: Map[Int, Seq[OffloadedSegmentSpec]] = builder.offloadedSegmentSpecs
 
   def configure(admin: Admin, zookeeperClient: KafkaZkClient, kafkaServers: Seq[KafkaServer]): Unit = {
     val topicProps = new Properties()
@@ -79,7 +79,8 @@ final class TieredStorageTestSpec(builder: TieredStorageTestSpecBuilder) {
   }
 }
 
-final case class OffloadedSegmentSpec(val partition: Int,
+final case class OffloadedSegmentSpec(val sourceBrokerId: Int,
+                                      val partition: Int,
                                       val baseOffset: Int,
                                       val records: Seq[ProducerRecord[String, String]])
 
@@ -94,14 +95,14 @@ final class TieredStorageTestSpecBuilder(val topic: String,
                                          val replicationFactor: Int) {
 
   private val producables: mutable.Map[Int, mutable.Buffer[ProducerRecord[String, String]]] = mutable.Map()
-  private val offloadables: mutable.Map[Int, mutable.Buffer[(Int, Int)]] = mutable.Map()
+  private val offloadables: mutable.Map[Int, mutable.Buffer[(Int, Int, Int)]] = mutable.Map()
 
   var segmentSize: Int = -1
   var deleteSegmentsAfterOffload = true
   var fetchMaxBytes: Int = -1
 
   var recordsToProduce: Map[Int, Seq[ProducerRecord[String, String]]] = _
-  var offloadedSegmentSpec: Map[Int, Seq[OffloadedSegmentSpec]] = _
+  var offloadedSegmentSpecs: Map[Int, Seq[OffloadedSegmentSpec]] = _
 
   def withSegmentSize(segmentSize: Int): this.type = {
     assert(segmentSize >= 1, s"Segments size for topic ${topic} needs to be >= 1")
@@ -123,10 +124,12 @@ final class TieredStorageTestSpecBuilder(val topic: String,
     this
   }
 
-  def expectingSegmentToBeOffloaded(partition: Int, baseOffset: Int, segmentSize: Int): this.type = {
+  def expectingSegmentToBeOffloaded(fromBroker: Int, partition: Int, baseOffset: Int, segmentSize: Int): this.type = {
+    val attr = (fromBroker, baseOffset, segmentSize)
+
     offloadables.get(partition) match {
-      case Some(buffer) => buffer += ((baseOffset, segmentSize))
-      case None => offloadables += partition -> mutable.Buffer((baseOffset, segmentSize))
+      case Some(buffer) => buffer += attr
+      case None => offloadables += partition -> mutable.Buffer(attr)
     }
 
     this
@@ -140,16 +143,16 @@ final class TieredStorageTestSpecBuilder(val topic: String,
       * Builds a specification of an offloaded segment.
       * This method modifies this builder's sequence of records to produce.
       */
-    def makeSpec(partition: Int, sizeAndOffset: (Int, Int)): OffloadedSegmentSpec = {
-      sizeAndOffset match {
-        case (baseOffset: Int, segmentSize: Int) =>
+    def makeSpec(partition: Int, attr: (Int, Int, Int)): OffloadedSegmentSpec = {
+      attr match {
+        case (sourceBroker:Int, baseOffset: Int, segmentSize: Int) =>
           val segments = (0 until segmentSize).map(_ => producables(partition).remove(0))
-          new OffloadedSegmentSpec(partition, baseOffset, segments)
+          new OffloadedSegmentSpec(sourceBroker, partition, baseOffset, segments)
       }
     }
 
     // Creates the map of specifications of segments expected to be offloaded.
-    offloadedSegmentSpec = Map() ++
+    offloadedSegmentSpecs = Map() ++
       offloadables.map { case (p, offsetAndSizes) => (p, offsetAndSizes.map(makeSpec (p, _))) }
 
     new TieredStorageTestSpec(this)

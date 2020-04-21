@@ -3,7 +3,6 @@ package org.apache.kafka.common.log.remote.storage;
 import org.apache.kafka.common.*;
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorageEvent.*;
 
-import java.util.*;
 import java.util.concurrent.*;
 
 import static java.lang.String.*;

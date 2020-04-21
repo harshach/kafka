@@ -24,6 +24,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import static java.util.Objects.*;
+
 /**
  * Used to notify users of change in the local storage, such as the addition of a directory,
  * a segment or offset file.
@@ -44,7 +46,7 @@ public interface LocalTieredStorageListener {
         private final List<LocalTieredStorageListener> listeners = new CopyOnWriteArrayList<>();
 
         public void add(final LocalTieredStorageListener listener) {
-            listeners.add(Objects.requireNonNull(listener));
+            listeners.add(requireNonNull(listener));
         }
 
         @Override

@@ -33,8 +33,8 @@ object TieredStorageTests {
         .producing(0, "k1", "v1")
         .producing(0, "k2", "v2")
         .producing(0, "k3", "v3")
-        .expectingSegmentToBeOffloaded(0, baseOffset = 0, segmentSize = 1)
-        .expectingSegmentToBeOffloaded(0, baseOffset = 1, segmentSize = 1)
+        .expectingSegmentToBeOffloaded(fromBroker = 0, partition = 0, baseOffset = 0, segmentSize = 1)
+        .expectingSegmentToBeOffloaded(fromBroker = 0, partition = 0, baseOffset = 1, segmentSize = 1)
         .build()
 
       specs += newSpec(topic = "topicB", partitionsCount = 1, replicationFactor = 1)
@@ -42,7 +42,7 @@ object TieredStorageTests {
         .producing(0, "k1", "v1")
         .producing(0, "k2", "v2")
         .producing(0, "k3", "v3")
-        .expectingSegmentToBeOffloaded(0, baseOffset = 0, segmentSize = 2)
+        .expectingSegmentToBeOffloaded(fromBroker = 0, partition = 0, baseOffset = 0, segmentSize = 2)
         .build()
     }
   }
@@ -60,8 +60,8 @@ object TieredStorageTests {
         .producing(0, "k1", "v1")
         .producing(0, "k2", "v2")
         .producing(0, "k3", "v3")
-        .expectingSegmentToBeOffloaded(0, baseOffset = 0, segmentSize = 1)
-        .expectingSegmentToBeOffloaded(0, baseOffset = 1, segmentSize = 1)
+        .expectingSegmentToBeOffloaded(fromBroker = 0, partition = 0, baseOffset = 0, segmentSize = 1)
+        .expectingSegmentToBeOffloaded(fromBroker = 0, partition = 0, baseOffset = 1, segmentSize = 1)
         .build()
     }
   }
