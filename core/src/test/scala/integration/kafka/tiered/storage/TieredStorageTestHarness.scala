@@ -30,7 +30,7 @@ import org.apache.kafka.common.replica.ReplicaSelector
 import org.junit.{After, Before, Test}
 import unit.kafka.utils.BrokerLocalStorage
 
-import scala.collection.{Seq, mutable}
+import scala.collection.Seq
 
 /**
   * Base class for integration tests exercising the tiered storage functionality in Apache Kafka.
@@ -55,11 +55,11 @@ abstract class TieredStorageTestHarness extends IntegrationTestHarness {
     createBrokerConfigs(numConfigs = brokerCount, zkConnect).map(KafkaConfig.fromProps(_, overridingProps))
   }
 
-  private var orchestrator: TieredStorageTestOrchestrator = _
+  private var context: TieredStorageTestContext = _
 
   protected def readReplicaSelectorClass: Option[Class[_ <: ReplicaSelector]] = None
 
-  protected def writeTestSpecifications(specs: mutable.Buffer[TieredStorageTestSpec]): Unit
+  protected def writeTestSpecifications(builder: TieredStorageTestBuilder): Unit
 
   @Before
   override def setUp(): Unit = {
@@ -73,21 +73,21 @@ abstract class TieredStorageTestHarness extends IntegrationTestHarness {
       config.brokerId -> new BrokerLocalStorage(config.logDirs(0))
     }.toMap
 
-    orchestrator = new TieredStorageTestOrchestrator(
+    context = new TieredStorageTestContext(
       createAdminClient(), zkClient, servers, remoteStorages, localStorages, producerConfig, consumerConfig)
   }
 
   @Test
   def executeTieredStorageTest(): Unit = {
-    val specs = mutable.Buffer[TieredStorageTestSpec]()
-    writeTestSpecifications(specs)
-    orchestrator.execute(specs)
+    val builder = new TieredStorageTestBuilder
+    writeTestSpecifications(builder)
+    builder.complete().foreach(_.execute(context))
   }
 
   @After
   override def tearDown(): Unit = {
-    if (orchestrator != null) {
-      orchestrator.tearDown()
+    if (context != null) {
+      context.close()
     }
     super.tearDown()
   }

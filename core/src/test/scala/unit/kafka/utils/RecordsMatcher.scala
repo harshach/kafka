@@ -4,20 +4,21 @@ import java.nio.ByteBuffer
 
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.clients.producer.ProducerRecord
+import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.record.{Record, SimpleRecord}
-import org.apache.kafka.common.serialization.{Deserializer, Serde}
+import org.apache.kafka.common.serialization.{Deserializer, Serde, Serdes}
 import org.apache.kafka.common.utils.Utils
 import org.hamcrest.{Description, TypeSafeDiagnosingMatcher}
 
 final class RecordsMatcher[R1, R2, K, V](private val expectedRecords: Iterable[R1],
-                                         private val topic: String,
+                                         private val topicPartition: TopicPartition,
                                          private val keySerde: Serde[K],
                                          private val valueSerde: Serde[V])
 
   extends TypeSafeDiagnosingMatcher[Iterable[R2]] {
 
   override def describeTo(description: Description): Unit = {
-    description.appendText(s"Records correspond (topic: $topic)")
+    description.appendText(s"Marcher for records of $topicPartition")
   }
 
   override def matchesSafely(actualRecord: Iterable[R2], mismatchDescription: Description): Boolean = {
@@ -53,9 +54,9 @@ final class RecordsMatcher[R1, R2, K, V](private val expectedRecords: Iterable[R
         val deserializer = keySerde.deserializer()
 
         mismatchDescription.appendText(s"$desc mismatch. Expected: ")
-          .appendValue(deserializer.deserialize(topic, Utils.toNullableArray(lhs)))
+          .appendValue(deserializer.deserialize(topicPartition.topic(), Utils.toNullableArray(lhs)))
           .appendText("; Actual: ")
-          .appendValue(deserializer.deserialize(topic, Utils.toNullableArray(rhs)))
+          .appendValue(deserializer.deserialize(topicPartition.topic(), Utils.toNullableArray(rhs)))
           .appendText(";")
 
         false
@@ -75,15 +76,15 @@ final class RecordsMatcher[R1, R2, K, V](private val expectedRecords: Iterable[R
     if (recordCandidate.isInstanceOf[ProducerRecord[K, V]]) {
       val record = recordCandidate.asInstanceOf[ProducerRecord[K, V]]
       Some(new SimpleRecord(record.timestamp(),
-        Utils.wrapNullable(keySerializer.serialize(topic, record.key())),
-        Utils.wrapNullable(valueSerializer.serialize(topic, record.value())),
+        Utils.wrapNullable(keySerializer.serialize(topicPartition.topic(), record.key())),
+        Utils.wrapNullable(valueSerializer.serialize(topicPartition.topic(), record.value())),
         record.headers().toArray))
 
     } else if (recordCandidate.isInstanceOf[ConsumerRecord[K, V]]) {
       val record = recordCandidate.asInstanceOf[ConsumerRecord[K, V]]
       Some(new SimpleRecord(record.timestamp(),
-        Utils.wrapNullable(keySerializer.serialize(topic, record.key())),
-        Utils.wrapNullable(valueSerializer.serialize(topic, record.value())),
+        Utils.wrapNullable(keySerializer.serialize(topicPartition.topic(), record.key())),
+        Utils.wrapNullable(valueSerializer.serialize(topicPartition.topic(), record.value())),
         record.headers().toArray))
 
     } else if (recordCandidate.isInstanceOf[Record]) {
@@ -98,11 +99,9 @@ final class RecordsMatcher[R1, R2, K, V](private val expectedRecords: Iterable[R
 
 object RecordsMatcher {
 
-  def correspondTo[K, V](expectedRecords: Iterable[Any],
-                         topic: String,
-                         keySerde: Serde[K],
-                         valueSerde: Serde[V]) : RecordsMatcher[Any, Any, K, V] = {
-    new RecordsMatcher[Any, Any, K, V](expectedRecords, topic, keySerde, valueSerde)
+  def correspondTo[K, V](expectedRecords: Iterable[Any], topicPartition: TopicPartition)
+                        (implicit keySerde: Serde[K], valueSerde: Serde[V]): RecordsMatcher[Any, Any, K, V] = {
+    new RecordsMatcher[Any, Any, K, V](expectedRecords, topicPartition, keySerde, valueSerde)
   }
 
 }

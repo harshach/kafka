@@ -8,7 +8,7 @@ import java.util.concurrent.*;
 import static java.lang.String.*;
 import static java.util.Objects.*;
 
-public class LocalTieredStorageCondition {
+public final class LocalTieredStorageCondition {
     final EventType eventType;
     final int brokerId;
     final TopicPartition topicPartition;

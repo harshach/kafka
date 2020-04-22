@@ -2,7 +2,6 @@ package integration.kafka.tiered.storage
 
 import java.util.Optional
 
-import integration.kafka.tiered.storage.TieredStorageTestSpecBuilder.newSpec
 import integration.kafka.tiered.storage.TieredStorageTests.{OffloadAndConsumeFromFollowerTest, OffloadAndConsumeFromLeaderTest}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.internals.Topic
@@ -14,7 +13,6 @@ import org.junit.runners.Suite
 
 import scala.collection.JavaConverters._
 import scala.compat.java8.OptionConverters._
-import scala.collection.mutable
 
 @SuiteClasses(Array[Class[_]](
   classOf[OffloadAndConsumeFromLeaderTest],
@@ -27,23 +25,22 @@ object TieredStorageTests {
 
     override protected def brokerCount: Int = 1
 
-    override protected def writeTestSpecifications(specs: mutable.Buffer[TieredStorageTestSpec]): Unit = {
-      specs += newSpec(topic = "topicA", partitionsCount = 1, replicationFactor = 1)
-        .withSegmentSize(1)
-        .producing(0, "k1", "v1")
-        .producing(0, "k2", "v2")
-        .producing(0, "k3", "v3")
-        .expectingSegmentToBeOffloaded(fromBroker = 0, partition = 0, baseOffset = 0, segmentSize = 1)
-        .expectingSegmentToBeOffloaded(fromBroker = 0, partition = 0, baseOffset = 1, segmentSize = 1)
-        .build()
+    override protected def writeTestSpecifications(builder: TieredStorageTestBuilder): Unit = {
+      builder
+        .createTopic(topic = "topicA", partitionsCount = 1, replicationFactor = 1, segmentSize = 1)
+        .produce("topicA", 0, "k1", "v1")
+        .produce("topicA", 0, "k2", "v2")
+        .produce("topicA", 0, "k3", "v3")
+        .expectSegmentToBeOffloaded(fromBroker = 0, "topicA", partition = 0, baseOffset = 0, segmentSize = 1)
+        .expectSegmentToBeOffloaded(fromBroker = 0, "topicA", partition = 0, baseOffset = 1, segmentSize = 1)
 
-      specs += newSpec(topic = "topicB", partitionsCount = 1, replicationFactor = 1)
-        .withSegmentSize(2)
-        .producing(0, "k1", "v1")
-        .producing(0, "k2", "v2")
-        .producing(0, "k3", "v3")
-        .expectingSegmentToBeOffloaded(fromBroker = 0, partition = 0, baseOffset = 0, segmentSize = 2)
-        .build()
+        .createTopic(topic = "topicB", partitionsCount = 1, replicationFactor = 1, segmentSize = 2)
+        .produce("topicB", 0, "k1", "v1")
+        .produce("topicB",  0, "k2", "v2")
+        .produce("topicB", 0, "k3", "v3")
+        .expectSegmentToBeOffloaded(fromBroker = 0, "topicB", partition = 0, baseOffset = 0, segmentSize = 2)
+
+       // .bounce(0)
     }
   }
 
@@ -54,15 +51,14 @@ object TieredStorageTests {
     override protected def readReplicaSelectorClass: Option[Class[_ <: ReplicaSelector]] =
       Some(classOf[ConsumeFromFollowerInDualBrokerCluster])
 
-    override protected def writeTestSpecifications(specs: mutable.Buffer[TieredStorageTestSpec]): Unit = {
-      specs += newSpec(topic = "topicA", partitionsCount = 1, replicationFactor = 2)
-        .withSegmentSize(1)
-        .producing(0, "k1", "v1")
-        .producing(0, "k2", "v2")
-        .producing(0, "k3", "v3")
-        .expectingSegmentToBeOffloaded(fromBroker = 0, partition = 0, baseOffset = 0, segmentSize = 1)
-        .expectingSegmentToBeOffloaded(fromBroker = 0, partition = 0, baseOffset = 1, segmentSize = 1)
-        .build()
+    override protected def writeTestSpecifications(builder: TieredStorageTestBuilder): Unit = {
+      builder
+        .createTopic("topicA", partitionsCount = 1, replicationFactor = 2, segmentSize = 1)
+        .produce("topicA", 0, "k1", "v1")
+        .produce("topicA", 0, "k2", "v2")
+        .produce("topicA", 0, "k3", "v3")
+        .expectSegmentToBeOffloaded(fromBroker = 0, "topicA", partition = 0, baseOffset = 0, segmentSize = 1)
+        .expectSegmentToBeOffloaded(fromBroker = 0, "topicA", partition = 0, baseOffset = 1, segmentSize = 1)
     }
   }
 }
