@@ -18,8 +18,7 @@ package kafka.tiered.storage
 
 import java.util.Properties
 
-import integration.kafka.tiered.storage.TieredStorageTestSpecBuilder.newSpec
-
+import integration.kafka.tiered.storage.{TieredStorageTestBuilder, TieredStorageTestContext}
 import kafka.api.IntegrationTestHarness
 import kafka.server.KafkaConfig
 import kafka.utils.TestUtils.createBrokerConfigs

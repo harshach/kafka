@@ -231,7 +231,6 @@ class ConsumerTask implements Runnable, Closeable {
     public void addAssignmentsForPartitions(Set<TopicPartition> updatedPartitions) {
         Objects.requireNonNull(updatedPartitions, "partitions can not be null");
 
-<<<<<<< HEAD
         log.info("Reassigning for user partitions {}", updatedPartitions);
         updateAssignmentsForPartitions(updatedPartitions, Collections.emptySet());
     }

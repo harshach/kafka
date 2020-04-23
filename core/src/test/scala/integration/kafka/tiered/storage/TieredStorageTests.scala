@@ -3,6 +3,7 @@ package integration.kafka.tiered.storage
 import java.util.Optional
 
 import integration.kafka.tiered.storage.TieredStorageTests.{OffloadAndConsumeFromFollowerTest, OffloadAndConsumeFromLeaderTest}
+import kafka.tiered.storage.TieredStorageTestHarness
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.replica.{ClientMetadata, PartitionView, ReplicaSelector, ReplicaView}
