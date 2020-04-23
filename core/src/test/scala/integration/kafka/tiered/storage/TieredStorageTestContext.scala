@@ -11,7 +11,7 @@ import org.apache.kafka.clients.admin.Admin
 import org.apache.kafka.clients.consumer.{ConsumerRecord, KafkaConsumer}
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.log.remote.storage.LocalTieredStorage
+import org.apache.kafka.common.log.remote.storage.{LocalTieredStorage, LocalTieredStorageSnapshot}
 import org.apache.kafka.common.serialization.Serdes
 import org.apache.kafka.common.utils.Utils
 import unit.kafka.utils.BrokerLocalStorage
@@ -59,8 +59,12 @@ final class TieredStorageTestContext(private val admin: Admin,
     records.foreach(producer.send(_).get())
   }
 
-  def consume(topicPartition: TopicPartition, numberOfRecords: Int): Seq[ConsumerRecord[String, String]] = {
+  def consume(topicPartition: TopicPartition,
+              numberOfRecords: Int,
+              fetchOffset: Long = 0): Seq[ConsumerRecord[String, String]] = {
+
     consumer.assign(Seq(topicPartition).asJava)
+    consumer.seek(topicPartition, fetchOffset)
     TestUtils.consumeRecords(consumer, numberOfRecords)
   }
 
@@ -71,13 +75,18 @@ final class TieredStorageTestContext(private val admin: Admin,
     broker.startup()
   }
 
+  def topicSpec(topicName: String) = topicSpecs.synchronized { topicSpecs(topicName) }
+
+  def takeTieredStorageSnapshot(): LocalTieredStorageSnapshot = {
+    LocalTieredStorageSnapshot.takeSnapshot(tieredStorages(0))
+  }
+
   def getTieredStorages: Seq[LocalTieredStorage] = tieredStorages.values.toSeq
 
   def getLocalStorages: Seq[BrokerLocalStorage] = localStorages.values.toSeq
 
-  def topicSpec(topicName: String) = topicSpecs.synchronized { topicSpecs(topicName) }
-
   def close(): Unit = {
+    getTieredStorages.foreach(Utils.closeQuietly(_, "Local tiered storage"))
     Utils.closeAll(producer, consumer)
   }
 

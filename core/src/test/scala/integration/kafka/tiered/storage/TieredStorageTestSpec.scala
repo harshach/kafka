@@ -8,10 +8,10 @@ import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.TopicConfig
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorageCondition.expectEvent
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorageEvent.EventType.OFFLOAD_SEGMENT
-import org.apache.kafka.common.log.remote.storage.{LocalTieredStorageSnapshot, RemoteLogSegmentFileset}
+import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset
 import org.apache.kafka.common.serialization.{Serde, Serdes}
 import org.hamcrest.MatcherAssert.assertThat
-import org.junit.Assert.assertEquals
+import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
 import unit.kafka.utils.RecordsMatcher.correspondTo
 
 import scala.collection.JavaConverters._
@@ -32,7 +32,7 @@ final class RemoteFetchRequestSpec(val fetchOffset: Long, val leaderEpoch: Long)
 
 trait TieredStorageTestAction {
 
-  def execute(context: TieredStorageTestContext)
+  def execute(context: TieredStorageTestContext): Unit
 
 }
 
@@ -98,7 +98,7 @@ final class ProduceAction(val offloadedSegmentSpecs: Map[TopicPartition, Seq[Off
         assertThat(consumedRecords, correspondTo(producedRecords, topicPartition))
     }
 
-    val snapshot = LocalTieredStorageSnapshot.takeSnapshot(tieredStorages(0))
+    val snapshot = context.takeTieredStorageSnapshot()
 
     offloadedSegmentSpecs.foreach {
       case (topicPartition: TopicPartition, specs: Seq[OffloadedSegmentSpec]) =>
@@ -126,12 +126,48 @@ final class ProduceAction(val offloadedSegmentSpecs: Map[TopicPartition, Seq[Off
   }
 }
 
-final class ConsumeAction() extends TieredStorageTestAction {
+final class ConsumeAction(val topicPartition: TopicPartition,
+                          val fetchOffset: Long,
+                          val expectedTotalCount: Int,
+                          val expectedFromTieredStorageCount: Int) extends TieredStorageTestAction {
+
+  private implicit val serde: Serde[String] = Serdes.String()
 
   override def execute(context: TieredStorageTestContext): Unit = {
+    val consumedRecords = context.consume(topicPartition, expectedTotalCount, fetchOffset)
 
+    if (expectedFromTieredStorageCount == 0) {
+      return
+    }
+
+    val snapshot = context.takeTieredStorageSnapshot()
+    val tieredStorageRecords = snapshot
+        .getFilesets(topicPartition).asScala
+        .sortWith((x, y) => x.getRecords.get(0).offset() <= y.getRecords.get(0).offset())
+        .map(_.getRecords.asScala).flatten
+
+    val firstExpectedRecordOpt = tieredStorageRecords.find(_.offset() == fetchOffset)
+    assertTrue(s"Could not find record with offset $fetchOffset", firstExpectedRecordOpt.isDefined)
+
+    val indexOfFetchOffsetInTieredStorage = tieredStorageRecords.indexOf(firstExpectedRecordOpt.get)
+    val recordsCountFromFirstIndex = tieredStorageRecords.size - indexOfFetchOffsetInTieredStorage
+
+    assertFalse(
+      s"Not enough records found in tiered storage from offset $fetchOffset. " +
+      s"Expected: $expectedFromTieredStorageCount, Was $recordsCountFromFirstIndex",
+      expectedFromTieredStorageCount > recordsCountFromFirstIndex)
+
+    assertFalse(
+      s"Too many records found in tiered storage from offset $fetchOffset. " +
+      s"Expected: $expectedFromTieredStorageCount, Was $recordsCountFromFirstIndex",
+      expectedFromTieredStorageCount < recordsCountFromFirstIndex
+    )
+
+    val storedRecords = tieredStorageRecords.splitAt(indexOfFetchOffsetInTieredStorage)._2
+    val readRecords = consumedRecords.take(expectedFromTieredStorageCount)
+
+    assertThat(storedRecords, correspondTo(readRecords, topicPartition))
   }
-
 }
 
 final class BounceBrokerAction(val brokerId: Int) extends TieredStorageTestAction {
@@ -147,6 +183,7 @@ final class BounceBrokerAction(val brokerId: Int) extends TieredStorageTestActio
 final class TieredStorageTestBuilder {
   private var producables: mutable.Map[TopicPartition, mutable.Buffer[ProducerRecord[String, String]]] = mutable.Map()
   private var offloadables: mutable.Map[TopicPartition, mutable.Buffer[(Int, Int, Int)]] = mutable.Map()
+  private var consumables: mutable.Map[TopicPartition, (Long, Int, Int)] = mutable.Map()
 
   private val actions = mutable.Buffer[TieredStorageTestAction]()
 
@@ -155,12 +192,15 @@ final class TieredStorageTestBuilder {
     assert(partitionsCount >= 1, s"Partition count for topic ${topic} needs to be >= 1")
     assert(replicationFactor >= 1, s"Replication factor for topic ${topic} needs to be >= 1")
 
-    maybeCreateProduceOffloadAction()
+    maybeCreateProduceAction()
+    maybeCreateConsumeActions()
+
     actions += new CreateTopicAction(TopicSpec(topic, partitionsCount, replicationFactor, segmentSize))
     this
   }
 
   def produce(topic: String, partition: Int, key: String, value: String): this.type = {
+    assert(partition >= 0, "Partition must be >= 0")
     val topicPartition = new TopicPartition(topic, partition)
 
     if (!producables.contains(topicPartition)) {
@@ -168,6 +208,25 @@ final class TieredStorageTestBuilder {
     }
 
     producables(topicPartition) += new ProducerRecord[String, String](topic, partition, key, value)
+    this
+  }
+
+  def consume(topic: String,
+              partition: Int,
+              fetchOffset: Long,
+              expectedTotalCount: Int,
+              expectedFromTieredStorageCount: Int): this.type = {
+
+    assert(partition >= 0, "Partition must be >= 0")
+    assert(fetchOffset >= 0, "Fecth offset must be >=0")
+    assert(expectedTotalCount >= 1, "Must read at least one record")
+    assert(expectedFromTieredStorageCount >= 0, "Expected read cannot be < 0")
+    assert(expectedFromTieredStorageCount <= expectedTotalCount, "Cannot fetch more records than consumed")
+
+    val topicPartition = new TopicPartition(topic, partition)
+
+    assert(!consumables.contains(topicPartition), s"Consume already in progress for $topicPartition")
+    consumables += topicPartition -> (fetchOffset, expectedTotalCount, expectedFromTieredStorageCount)
     this
   }
 
@@ -186,17 +245,19 @@ final class TieredStorageTestBuilder {
   }
 
   def bounce(brokerId: Int): this.type = {
-    maybeCreateProduceOffloadAction()
+    maybeCreateProduceAction()
+    maybeCreateConsumeActions()
     actions += new BounceBrokerAction(brokerId)
     this
   }
 
   def complete(): Seq[TieredStorageTestAction] = {
-    maybeCreateProduceOffloadAction()
+    maybeCreateProduceAction()
+    maybeCreateConsumeActions()
     actions
   }
 
-  private def maybeCreateProduceOffloadAction(): Unit = {
+  private def maybeCreateProduceAction(): Unit = {
     if (!producables.isEmpty) {
       // Creates the map of records to produce. Order of records is preserved at partition level.
       val recordsToProduce = Map() ++ producables.mapValues(Seq() ++ _)
@@ -205,8 +266,8 @@ final class TieredStorageTestBuilder {
         * Builds a specification of an offloaded segment.
         * This method modifies this builder's sequence of records to produce.
         */
-      def makeSpec(topicPartition: TopicPartition, attr: (Int, Int, Int)): OffloadedSegmentSpec = {
-        attr match {
+      def makeSpec(topicPartition: TopicPartition, attrs: (Int, Int, Int)): OffloadedSegmentSpec = {
+        attrs match {
           case (sourceBroker:Int, baseOffset: Int, segmentSize: Int) =>
             val segments = (0 until segmentSize).map(_ => producables(topicPartition).remove(0))
             new OffloadedSegmentSpec(sourceBroker, topicPartition, baseOffset, segments)
@@ -219,6 +280,16 @@ final class TieredStorageTestBuilder {
       actions += new ProduceAction(offloadedSegmentSpecs, recordsToProduce)
       producables = mutable.Map()
       offloadables = mutable.Map()
+    }
+  }
+
+  private def maybeCreateConsumeActions(): Unit = {
+    if (!consumables.isEmpty) {
+      consumables.foreach {
+        case (topicPartition, spec) =>
+          actions += new ConsumeAction(topicPartition, spec._1, spec._2, spec._3)
+      }
+      consumables = mutable.Map()
     }
   }
 }
