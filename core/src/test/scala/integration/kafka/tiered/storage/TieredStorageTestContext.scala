@@ -1,17 +1,20 @@
 package integration.kafka.tiered.storage
 
+import java.time.Duration
 import java.util.Properties
 
 import kafka.admin.AdminUtils.assignReplicasToBrokers
 import kafka.admin.BrokerMetadata
 import kafka.server.KafkaServer
+import kafka.tiered.storage.TieredStorageTestHarness
 import kafka.utils.TestUtils
 import kafka.zk.KafkaZkClient
-import org.apache.kafka.clients.admin.Admin
+import org.apache.kafka.clients.CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG
 import org.apache.kafka.clients.consumer.{ConsumerRecord, KafkaConsumer}
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.log.remote.storage.{LocalTieredStorage, LocalTieredStorageSnapshot}
+import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.serialization.Serdes
 import org.apache.kafka.common.utils.Utils
 import unit.kafka.utils.BrokerLocalStorage
@@ -33,19 +36,34 @@ import scala.collection.{Seq, mutable}
   * 3) Consume records;
   * 4) Verify records from Kafka and the [[LocalTieredStorage]].
   */
-final class TieredStorageTestContext(private val admin: Admin,
-                                     private val zookeeperClient: KafkaZkClient,
+final class TieredStorageTestContext(private val zookeeperClient: KafkaZkClient,
                                      private val brokers: Seq[KafkaServer],
-                                     private val tieredStorages: Map[Int, LocalTieredStorage],
-                                     private val localStorages: Map[Int, BrokerLocalStorage],
                                      private val producerConfig: Properties,
-                                     private val consumerConfig: Properties) {
+                                     private val consumerConfig: Properties,
+                                     private val securityProtocol: SecurityProtocol) {
 
-  private val serde = Serdes.String()
-  private val producer = new KafkaProducer[String, String](producerConfig, serde.serializer(), serde.serializer())
-  private val consumer = new KafkaConsumer[String, String](consumerConfig, serde.deserializer(), serde.deserializer())
-
+  private val (ser, de) = (Serdes.String().serializer(), Serdes.String().deserializer())
   private val topicSpecs = mutable.Map[String, TopicSpec]()
+
+  @volatile private var producer: KafkaProducer[String, String] = _
+  @volatile private var consumer: KafkaConsumer[String, String] = _
+
+  @volatile private var tieredStorages: Seq[LocalTieredStorage] = _
+  @volatile private var localStorages: Seq[BrokerLocalStorage] = _
+
+  initContext()
+
+  def initContext(): Unit = {
+    val bootstrapServerString = TestUtils.getBrokerListStrFromServers(brokers, securityProtocol)
+    producerConfig.put(BOOTSTRAP_SERVERS_CONFIG, bootstrapServerString)
+    consumerConfig.put(BOOTSTRAP_SERVERS_CONFIG, bootstrapServerString)
+
+    producer = new KafkaProducer[String, String](producerConfig, ser, ser)
+    consumer = new KafkaConsumer[String, String](consumerConfig, de, de)
+
+    tieredStorages = TieredStorageTestHarness.getTieredStorages(brokers)
+    localStorages = TieredStorageTestHarness.getLocalStorages(brokers)
+  }
 
   def createTopic(spec: TopicSpec): Unit = {
     val metadata = brokers(0).metadataCache.getAliveBrokers.map(b => BrokerMetadata(b.id, b.rack))
@@ -70,9 +88,15 @@ final class TieredStorageTestContext(private val admin: Admin,
 
   def bounce(brokerId: Int): Unit = {
     val broker = brokers(brokerId)
+
+    producer.close(Duration.ofSeconds(5))
+    consumer.close(Duration.ofSeconds(5))
+
     broker.shutdown()
     broker.awaitShutdown()
     broker.startup()
+
+    initContext()
   }
 
   def topicSpec(topicName: String) = topicSpecs.synchronized { topicSpecs(topicName) }
@@ -81,12 +105,12 @@ final class TieredStorageTestContext(private val admin: Admin,
     LocalTieredStorageSnapshot.takeSnapshot(tieredStorages(0))
   }
 
-  def getTieredStorages: Seq[LocalTieredStorage] = tieredStorages.values.toSeq
+  def getTieredStorages: Seq[LocalTieredStorage] = tieredStorages
 
-  def getLocalStorages: Seq[BrokerLocalStorage] = localStorages.values.toSeq
+  def getLocalStorages: Seq[BrokerLocalStorage] = localStorages
 
   def close(): Unit = {
-    getTieredStorages.foreach(Utils.closeQuietly(_, "Local tiered storage"))
+    getTieredStorages.find(_ => true).foreach(_.clear())
     Utils.closeAll(producer, consumer)
   }
 

@@ -34,14 +34,16 @@ object TieredStorageTests {
         .produce("topicA", 0, "k3", "v3")
         .expectSegmentToBeOffloaded(fromBroker = 0, "topicA", partition = 0, baseOffset = 0, segmentSize = 1)
         .expectSegmentToBeOffloaded(fromBroker = 0, "topicA", partition = 0, baseOffset = 1, segmentSize = 1)
-        .consume(topic = "topicA", partition = 0, fetchOffset = 1, expectedTotalCount = 2, expectedFromTieredStorageCount = 1)
 
         .createTopic(topic = "topicB", partitionsCount = 1, replicationFactor = 1, segmentSize = 2)
         .produce("topicB", 0, "k1", "v1")
         .produce("topicB",  0, "k2", "v2")
         .produce("topicB", 0, "k3", "v3")
         .expectSegmentToBeOffloaded(fromBroker = 0, "topicB", partition = 0, baseOffset = 0, segmentSize = 2)
-        .consume(topic = "topicB", partition = 0, fetchOffset = 0, expectedTotalCount = 3, expectedFromTieredStorageCount = 2)
+
+        .bounce(0)
+        .consume("topicA", partition = 0, fetchOffset = 1, expectedTotalCount = 2, expectedFromTieredStorageCount = 1)
+        .consume("topicB", partition = 0, fetchOffset = 0, expectedTotalCount = 3, expectedFromTieredStorageCount = 2)
     }
   }
 
@@ -60,7 +62,7 @@ object TieredStorageTests {
         .produce("topicA", 0, "k3", "v3")
         .expectSegmentToBeOffloaded(fromBroker = 0, "topicA", partition = 0, baseOffset = 0, segmentSize = 1)
         .expectSegmentToBeOffloaded(fromBroker = 0, "topicA", partition = 0, baseOffset = 1, segmentSize = 1)
-        .consume(topic = "topicA", partition = 0, fetchOffset = 1, expectedTotalCount = 2, expectedFromTieredStorageCount = 1)
+        .consume("topicA", partition = 0, fetchOffset = 1, expectedTotalCount = 2, expectedFromTieredStorageCount = 1)
     }
   }
 }

@@ -340,39 +340,40 @@ public final class LocalTieredStorage implements RemoteStorageManager {
 
     @Override
     public void close() {
-        if (deleteOnClose) {
-            try {
-                final File[] files = storageDirectory.listFiles();
-                final Optional<File> notADirectory = Arrays.stream(files).filter(f -> !f.isDirectory()).findAny();
+    }
 
-                if (notADirectory.isPresent()) {
-                    LOGGER.warn("Found file [{}] which is not a remote topic-partition directory. " +
-                            "Stopping the deletion process.", notADirectory.get());
-                    //
-                    // If an unexpected state is encountered, do not proceed with the delete of the local storage,
-                    // keeping it for post-mortem analysis. Do not throw either, in an attempt to keep the close()
-                    // method quiet.
-                    //
-                    return;
-                }
+    public void clear() {
+        try {
+            final File[] files = storageDirectory.listFiles();
+            final Optional<File> notADirectory = Arrays.stream(files).filter(f -> !f.isDirectory()).findAny();
 
-                final boolean success = Arrays.stream(files)
-                        .map(dir -> openExistingTopicPartitionDirectory(dir.getName(), storageDirectory))
-                        .map(RemoteTopicPartitionDirectory::delete)
-                        .reduce(true, Boolean::logicalAnd);
-
-                if (success) {
-                    storageDirectory.delete();
-                }
-
-                File root = new File(ROOT_STORAGES_DIR_NAME);
-                if (root.exists() && root.isDirectory() && root.list().length == 0) {
-                    root.delete();
-                }
-
-            } catch (final Exception e) {
-                LOGGER.error("Error while deleting remote storage. Stopping the deletion process.", e);
+            if (notADirectory.isPresent()) {
+                LOGGER.warn("Found file [{}] which is not a remote topic-partition directory. " +
+                        "Stopping the deletion process.", notADirectory.get());
+                //
+                // If an unexpected state is encountered, do not proceed with the delete of the local storage,
+                // keeping it for post-mortem analysis. Do not throw either, in an attempt to keep the close()
+                // method quiet.
+                //
+                return;
             }
+
+            final boolean success = Arrays.stream(files)
+                    .map(dir -> openExistingTopicPartitionDirectory(dir.getName(), storageDirectory))
+                    .map(RemoteTopicPartitionDirectory::delete)
+                    .reduce(true, Boolean::logicalAnd);
+
+            if (success) {
+                storageDirectory.delete();
+            }
+
+            File root = new File(ROOT_STORAGES_DIR_NAME);
+            if (root.exists() && root.isDirectory() && root.list().length == 0) {
+                root.delete();
+            }
+
+        } catch (final Exception e) {
+            LOGGER.error("Error while deleting remote storage. Stopping the deletion process.", e);
         }
     }
 

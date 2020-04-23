@@ -30,10 +30,12 @@ public final class LocalTieredStorageCondition {
 
     public final LocalTieredStorageCondition and(final LocalTieredStorageCondition last) {
         if (last.next != null) {
-            throw new IllegalArgumentException(format("The condition %s is already composed, cannot add it to %s", last, this));
+            throw new IllegalArgumentException(
+                    format("The condition %s is already composed, cannot add it to %s", last, this));
         }
         if (last == this) {
-            throw new IllegalArgumentException(format("The condition %s cannot be added to itself", this));
+            throw new IllegalArgumentException(
+                    format("The condition %s cannot be added to itself", this));
         }
         return new LocalTieredStorageCondition(this, next != null ? next.and(last) : last);
     }
@@ -52,7 +54,8 @@ public final class LocalTieredStorageCondition {
     }
 
     public String toString() {
-        return format("Condition[eventType=%s, brokerId=%d, topicPartition=%s, failed=%b", eventType, brokerId, topicPartition, failed);
+        return format("Condition[eventType=%s, brokerId=%d, topicPartition=%s, failed=%b]",
+                eventType, brokerId, topicPartition, failed);
     }
 
     private final class InternalListener implements LocalTieredStorageListener {

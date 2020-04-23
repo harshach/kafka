@@ -20,7 +20,7 @@ import java.util.Properties
 
 import integration.kafka.tiered.storage.{TieredStorageTestBuilder, TieredStorageTestContext}
 import kafka.api.IntegrationTestHarness
-import kafka.server.KafkaConfig
+import kafka.server.{KafkaConfig, KafkaServer}
 import kafka.utils.TestUtils.createBrokerConfigs
 import org.apache.kafka.common.log.remote.metadata.storage.RLMMWithTopicStorage
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorage
@@ -63,17 +63,7 @@ abstract class TieredStorageTestHarness extends IntegrationTestHarness {
   @Before
   override def setUp(): Unit = {
     super.setUp()
-
-    val remoteStorages = servers.map { server =>
-      server.config.brokerId -> server.remoteLogManager.get.storageManager().asInstanceOf[LocalTieredStorage]
-    }.toMap
-
-    val localStorages = servers.map(_.config).map { config =>
-      config.brokerId -> new BrokerLocalStorage(config.logDirs(0))
-    }.toMap
-
-    context = new TieredStorageTestContext(
-      createAdminClient(), zkClient, servers, remoteStorages, localStorages, producerConfig, consumerConfig)
+    context = new TieredStorageTestContext(zkClient, servers, producerConfig, consumerConfig, securityProtocol)
   }
 
   @Test
@@ -89,6 +79,18 @@ abstract class TieredStorageTestHarness extends IntegrationTestHarness {
       context.close()
     }
     super.tearDown()
+  }
+
+}
+
+object TieredStorageTestHarness {
+
+  def getTieredStorages(brokers: Seq[KafkaServer]): Seq[LocalTieredStorage] = {
+    brokers.map(_.remoteLogManager.get.storageManager().asInstanceOf[LocalTieredStorage])
+  }
+
+  def getLocalStorages(brokers: Seq[KafkaServer]): Seq[BrokerLocalStorage] = {
+    brokers.map(b => new BrokerLocalStorage(b.config.logDirs(0)))
   }
 
 }
