@@ -64,6 +64,12 @@ final class BrokerLocalStorage(private val storageDirname: String) {
     }
   }
 
+  def eraseStorage(): Unit = {
+    val (files, dirs) = brokerStorageDirectory.listFiles().partition(_.isFile)
+    files.foreach(_.delete())
+    dirs.map(_.listFiles()).flatten.foreach(_.delete())
+  }
+
   private def getEarliestOffset(topicPartition: TopicPartition): (Long, Seq[String]) = {
     val topicPartitionFiles = getTopicPartitionFiles(topicPartition)
 

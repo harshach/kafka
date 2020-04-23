@@ -41,7 +41,7 @@ object TieredStorageTests {
         .produce("topicB", 0, "k3", "v3")
         .expectSegmentToBeOffloaded(fromBroker = 0, "topicB", partition = 0, baseOffset = 0, segmentSize = 2)
 
-        .bounce(0)
+        .bounce(brokerId = 0)
         .consume("topicA", partition = 0, fetchOffset = 1, expectedTotalCount = 2, expectedFromTieredStorageCount = 1)
         .consume("topicB", partition = 0, fetchOffset = 0, expectedTotalCount = 3, expectedFromTieredStorageCount = 2)
     }
@@ -62,6 +62,11 @@ object TieredStorageTests {
         .produce("topicA", 0, "k3", "v3")
         .expectSegmentToBeOffloaded(fromBroker = 0, "topicA", partition = 0, baseOffset = 0, segmentSize = 1)
         .expectSegmentToBeOffloaded(fromBroker = 0, "topicA", partition = 0, baseOffset = 1, segmentSize = 1)
+        .consume("topicA", partition = 0, fetchOffset = 1, expectedTotalCount = 2, expectedFromTieredStorageCount = 1)
+
+        .stop(brokerId = 1)
+        .eraseBrokerStorage(brokerId = 1)
+        .start(brokerId = 1)
         .consume("topicA", partition = 0, fetchOffset = 1, expectedTotalCount = 2, expectedFromTieredStorageCount = 1)
     }
   }

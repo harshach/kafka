@@ -28,7 +28,7 @@ final case class TopicSpec(val topicName: String,
                            val segmentSize: Int,
                            val properties: Properties = new Properties)
 
-final class RemoteFetchRequestSpec(val fetchOffset: Long, val leaderEpoch: Long)
+final class RemoteFetchRequestSpec(val brokerId: Int, val fetchOffset: Long)
 
 trait TieredStorageTestAction {
 
@@ -171,9 +171,19 @@ final class ConsumeAction(val topicPartition: TopicPartition,
 }
 
 final class BounceBrokerAction(val brokerId: Int) extends TieredStorageTestAction {
-  override def execute(context: TieredStorageTestContext): Unit = {
-    context.bounce(brokerId)
-  }
+  override def execute(context: TieredStorageTestContext): Unit = context.bounce(brokerId)
+}
+
+final class StopBrokerAction(val brokerId: Int) extends TieredStorageTestAction {
+  override def execute(context: TieredStorageTestContext): Unit = context.stop(brokerId)
+}
+
+final class StartBrokerAction(val brokerId: Int) extends TieredStorageTestAction {
+  override def execute(context: TieredStorageTestContext): Unit = context.start(brokerId)
+}
+
+final class EraseBrokerStorageAction(val brokerId: Int) extends TieredStorageTestAction {
+  override def execute(context: TieredStorageTestContext): Unit = context.eraseBrokerStorage(brokerId)
 }
 
 /**
@@ -183,7 +193,9 @@ final class BounceBrokerAction(val brokerId: Int) extends TieredStorageTestActio
 final class TieredStorageTestBuilder {
   private var producables: mutable.Map[TopicPartition, mutable.Buffer[ProducerRecord[String, String]]] = mutable.Map()
   private var offloadables: mutable.Map[TopicPartition, mutable.Buffer[(Int, Int, Int)]] = mutable.Map()
+
   private var consumables: mutable.Map[TopicPartition, (Long, Int, Int)] = mutable.Map()
+  //private var fetchables: mutable.Map[TopicPartition, ()] = mutable.Map()
 
   private val actions = mutable.Buffer[TieredStorageTestAction]()
 
@@ -248,6 +260,23 @@ final class TieredStorageTestBuilder {
     maybeCreateProduceAction()
     maybeCreateConsumeActions()
     actions += new BounceBrokerAction(brokerId)
+    this
+  }
+
+  def stop(brokerId: Int): this.type = {
+    maybeCreateProduceAction()
+    maybeCreateConsumeActions()
+    actions += new StopBrokerAction(brokerId)
+    this
+  }
+
+  def start(brokerId: Int): this.type = {
+    actions += new StartBrokerAction(brokerId)
+    this
+  }
+
+  def eraseBrokerStorage(brokerId: Int): this.type = {
+    actions += new EraseBrokerStorageAction(brokerId)
     this
   }
 

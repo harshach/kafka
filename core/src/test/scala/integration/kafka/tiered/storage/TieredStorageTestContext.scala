@@ -99,6 +99,27 @@ final class TieredStorageTestContext(private val zookeeperClient: KafkaZkClient,
     initContext()
   }
 
+  def stop(brokerId: Int): Unit = {
+    val broker = brokers(brokerId)
+    broker.shutdown()
+    broker.awaitShutdown()
+  }
+
+  def start(brokerId: Int): Unit = {
+    val broker = brokers(brokerId)
+
+    producer.close(Duration.ofSeconds(5))
+    consumer.close(Duration.ofSeconds(5))
+
+    broker.startup()
+
+    initContext()
+  }
+
+  def eraseBrokerStorage(brokerId: Int): Unit = {
+    localStorages(brokerId).eraseStorage()
+  }
+
   def topicSpec(topicName: String) = topicSpecs.synchronized { topicSpecs(topicName) }
 
   def takeTieredStorageSnapshot(): LocalTieredStorageSnapshot = {

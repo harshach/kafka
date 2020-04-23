@@ -80,7 +80,6 @@ abstract class TieredStorageTestHarness extends IntegrationTestHarness {
     }
     super.tearDown()
   }
-
 }
 
 object TieredStorageTestHarness {
@@ -92,5 +91,4 @@ object TieredStorageTestHarness {
   def getLocalStorages(brokers: Seq[KafkaServer]): Seq[BrokerLocalStorage] = {
     brokers.map(b => new BrokerLocalStorage(b.config.logDirs(0)))
   }
-
 }
