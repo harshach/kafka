@@ -17,7 +17,7 @@ import org.apache.kafka.common.utils.Utils
 import unit.kafka.utils.BrokerLocalStorage
 
 import scala.collection.JavaConverters._
-import scala.collection.Seq
+import scala.collection.{Seq, mutable}
 
 /**
   * This orchestrator is responsible for the execution of a test case against physical Apache Kafka broker(s)
@@ -45,10 +45,14 @@ final class TieredStorageTestContext(private val admin: Admin,
   private val producer = new KafkaProducer[String, String](producerConfig, serde.serializer(), serde.serializer())
   private val consumer = new KafkaConsumer[String, String](consumerConfig, serde.deserializer(), serde.deserializer())
 
-  def createTopic(topicName: String, partitionCount: Int, replicationFactor: Int, props: Properties): Unit = {
+  private val topicSpecs = mutable.Map[String, TopicSpec]()
+
+  def createTopic(spec: TopicSpec): Unit = {
     val metadata = brokers(0).metadataCache.getAliveBrokers.map(b => BrokerMetadata(b.id, b.rack))
-    val assignments = assignReplicasToBrokers(metadata, partitionCount, replicationFactor, 0, 0)
-    TestUtils.createTopic(zookeeperClient, topicName, assignments, brokers, props)
+    val assignments = assignReplicasToBrokers(metadata, spec.partitionCount, spec.replicationFactor, 0, 0)
+    TestUtils.createTopic(zookeeperClient, spec.topicName, assignments, brokers, spec.properties)
+
+    topicSpecs.synchronized { topicSpecs += spec.topicName -> spec }
   }
 
   def produce(records: Iterable[ProducerRecord[String, String]]) = {
@@ -70,6 +74,8 @@ final class TieredStorageTestContext(private val admin: Admin,
   def getTieredStorages: Seq[LocalTieredStorage] = tieredStorages.values.toSeq
 
   def getLocalStorages: Seq[BrokerLocalStorage] = localStorages.values.toSeq
+
+  def topicSpec(topicName: String) = topicSpecs.synchronized { topicSpecs(topicName) }
 
   def close(): Unit = {
     Utils.closeAll(producer, consumer)

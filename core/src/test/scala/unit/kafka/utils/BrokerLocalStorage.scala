@@ -58,7 +58,7 @@ final class BrokerLocalStorage(private val storageDirname: String) {
     if (earliestOffset._1 < offset) {
       val sep = System.lineSeparator()
       val message = s"The base offset of the first log segment of $topicPartition in the log directory is " +
-        s"${earliestOffset._1} which is smaller than the expected pffset $offset. The directory of $topicPartition " +
+        s"${earliestOffset._1} which is smaller than the expected offset $offset. The directory of $topicPartition " +
         s"is made of the following files: $sep${earliestOffset._2.mkString(sep)}"
 
       throw new AssertionError(message)
