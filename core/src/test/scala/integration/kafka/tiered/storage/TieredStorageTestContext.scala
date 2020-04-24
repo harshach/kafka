@@ -20,7 +20,7 @@ import org.apache.kafka.common.serialization.Serdes
 import org.apache.kafka.common.utils.Utils
 import unit.kafka.utils.BrokerLocalStorage
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.{Seq, mutable}
 
 /**
@@ -117,6 +117,7 @@ final class TieredStorageTestContext(private val zookeeperClient: KafkaZkClient,
 
     producer.close(Duration.ofSeconds(5))
     consumer.close(Duration.ofSeconds(5))
+    admin.close()
 
     broker.startup()
 

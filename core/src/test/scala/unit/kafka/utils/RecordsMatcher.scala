@@ -6,7 +6,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.record.{Record, SimpleRecord}
-import org.apache.kafka.common.serialization.{Deserializer, Serde, Serdes}
+import org.apache.kafka.common.serialization.{Deserializer, Serde}
 import org.apache.kafka.common.utils.Utils
 import org.hamcrest.{Description, TypeSafeDiagnosingMatcher}
 

@@ -2,7 +2,7 @@ package integration.kafka.tiered.storage
 
 import java.util.Optional
 
-import integration.kafka.tiered.storage.TieredStorageTests.{OffloadAndConsumeFromFollowerTest, OffloadAndConsumeFromLeaderTest}
+import integration.kafka.tiered.storage.TieredStorageTests.{CanFetchFromTieredStorageAfterRecoveryOfLocalSegmentsTest, OffloadAndConsumeFromLeaderTest}
 import kafka.tiered.storage.TieredStorageTestHarness
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.internals.Topic
@@ -12,12 +12,13 @@ import org.junit.runner.RunWith
 import org.junit.runners.Suite.SuiteClasses
 import org.junit.runners.Suite
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.compat.java8.OptionConverters._
 
 @SuiteClasses(Array[Class[_]](
   classOf[OffloadAndConsumeFromLeaderTest],
-  classOf[OffloadAndConsumeFromFollowerTest]
+  classOf[CanFetchFromTieredStorageAfterRecoveryOfLocalSegmentsTest]
+/*  classOf[OffloadAndConsumeFromFollowerTest] */
 ))
 @RunWith(classOf[Suite])
 object TieredStorageTests {
@@ -49,6 +50,30 @@ object TieredStorageTests {
     }
   }
 
+  final class CanFetchFromTieredStorageAfterRecoveryOfLocalSegmentsTest extends TieredStorageTestHarness {
+
+    override protected def brokerCount: Int = 2
+
+    override protected def writeTestSpecifications(builder: TieredStorageTestBuilder): Unit = {
+      builder
+        .createTopic("topicA", partitionsCount = 1, replicationFactor = 2, segmentSize = 1)
+        .expectLeader("topicA", partition = 0, brokerId = 0)
+        .expectInIsr("topicA", partition = 0, brokerId = 1)
+        .produce("topicA", 0, "k1", "v1")
+        .produce("topicA", 0, "k2", "v2")
+        .produce("topicA", 0, "k3", "v3")
+        .expectSegmentToBeOffloaded(fromBroker = 0, "topicA", partition = 0, baseOffset = 0, segmentSize = 1)
+        .expectSegmentToBeOffloaded(fromBroker = 0, "topicA", partition = 0, baseOffset = 1, segmentSize = 1)
+
+        .stop(brokerId = 0)
+        .eraseBrokerStorage(brokerId = 0)
+        .start(brokerId = 0)
+        .expectLeader("topicA", partition = 0, brokerId = 1)
+        .consume("topicA", partition = 0, fetchOffset = 0, expectedTotal = 3, expectedFromTieredStorage = 2)
+        .expectFetchFromTieredStorage(fromBroker = 1, "topicA", partition = 0, count = 2)
+    }
+  }
+
   final class OffloadAndConsumeFromFollowerTest extends TieredStorageTestHarness {
 
     override protected def brokerCount: Int = 2
@@ -67,7 +92,7 @@ object TieredStorageTests {
         .expectSegmentToBeOffloaded(fromBroker = 0, "topicA", partition = 0, baseOffset = 0, segmentSize = 1)
         .expectSegmentToBeOffloaded(fromBroker = 0, "topicA", partition = 0, baseOffset = 1, segmentSize = 1)
         .consume("topicA", partition = 0, fetchOffset = 1, expectedTotal = 2, expectedFromTieredStorage = 1)
-/*
+
         .stop(brokerId = 1)
         .eraseBrokerStorage(brokerId = 1)
         .start(brokerId = 1)
@@ -75,7 +100,6 @@ object TieredStorageTests {
         .expectInIsr("topicA", partition = 0, brokerId = 1)
         .consume("topicA", partition = 0, fetchOffset = 0, expectedTotal = 2, expectedFromTieredStorage = 1)
         .expectFetchFromTieredStorage(fromBroker = 1, "topicA", partition = 0, count = 2)
-*/
     }
   }
 }

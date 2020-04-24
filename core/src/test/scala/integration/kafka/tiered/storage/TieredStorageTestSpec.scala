@@ -3,7 +3,7 @@ package integration.kafka.tiered.storage
 import java.util.Properties
 import java.util.concurrent.TimeUnit
 
-import kafka.utils.TestUtils
+import kafka.utils.{TestUtils, nonthreadsafe}
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.TopicConfig
@@ -15,7 +15,7 @@ import org.hamcrest.MatcherAssert.assertThat
 import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
 import unit.kafka.utils.RecordsMatcher.correspondTo
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.compat.java8.OptionConverters._
 import scala.collection.{Seq, mutable}
 
@@ -96,7 +96,7 @@ final class ProduceAction(val offloadedSegmentSpecs: Map[TopicPartition, Seq[Off
         val topicSpec = context.topicSpec(topicPartition.topic())
         val expectedEarliestOffset = producedRecords.size - (producedRecords.size % topicSpec.segmentSize) - 1
 
-        localStorages.map(_.waitForEarliestOffset(topicPartition, expectedEarliestOffset))
+        localStorages.foreach(_.waitForEarliestOffset(topicPartition, expectedEarliestOffset))
 
         val consumedRecords = context.consume(topicPartition, producedRecords.length)
         assertThat(consumedRecords, correspondTo(producedRecords, topicPartition))
@@ -216,6 +216,7 @@ final class ExpectBrokerInISR(val topicPartition: TopicPartition, brokerId: Int)
   * This builder helps to formulate a test case exercising the tiered storage functionality and formulate
   * the expectations following the execution of the test.
   */
+@nonthreadsafe
 final class TieredStorageTestBuilder {
   private var producables: mutable.Map[TopicPartition, mutable.Buffer[ProducerRecord[String, String]]] = mutable.Map()
   private var offloadables: mutable.Map[TopicPartition, mutable.Buffer[(Int, Int, Int)]] = mutable.Map()
@@ -336,7 +337,7 @@ final class TieredStorageTestBuilder {
   private def maybeCreateProduceAction(): Unit = {
     if (!producables.isEmpty) {
       // Creates the map of records to produce. Order of records is preserved at partition level.
-      val recordsToProduce = Map() ++ producables.mapValues(Seq() ++ _)
+      val recordsToProduce = Map() ++ producables.view.mapValues(Seq() ++ _)
 
       /**
         * Builds a specification of an offloaded segment.
@@ -351,7 +352,9 @@ final class TieredStorageTestBuilder {
       }
 
       // Creates the map of specifications of segments expected to be offloaded.
-      val offloadedSegmentSpecs = Map() ++ offloadables.map { case (p, attrs) => (p, attrs.map(makeSpec (p, _))) }
+      val offloadedSegmentSpecs = Map[TopicPartition, Seq[OffloadedSegmentSpec]]() ++ offloadables.map {
+        case (tp: TopicPartition, attrs: mutable.Buffer[(Int, Int, Int)]) => (tp, attrs.map(makeSpec (tp, _)))
+      }
 
       actions += new ProduceAction(offloadedSegmentSpecs, recordsToProduce)
       producables = mutable.Map()

@@ -92,6 +92,7 @@ final class BrokerLocalStorage(private val storageDirname: String) {
 
     new File(brokerStorageDirectory, topicPartitionDir)
       .listFiles()
+      .toIndexedSeq
       .map(_.getName())
   }
 
