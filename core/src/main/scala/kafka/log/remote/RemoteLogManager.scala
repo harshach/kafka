@@ -135,6 +135,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     rlmConfig.remoteStorageConfig.foreach { case (k, v) => rsmProps.put(k, v) }
     rsmProps.put(KafkaConfig.RemoteLogRetentionMillisProp, rlmConfig.remoteLogRetentionMillis)
     rsmProps.put(KafkaConfig.RemoteLogRetentionBytesProp, rlmConfig.remoteLogRetentionBytes)
+    rsmProps.put(KafkaConfig.BrokerIdProp, brokerId)
     rsmWrapper.configure(rsmProps)
     rsmWrapper
   }
