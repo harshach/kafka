@@ -42,8 +42,10 @@ object TieredStorageTests {
         .expectSegmentToBeOffloaded(fromBroker = 0, "topicB", partition = 0, baseOffset = 0, segmentSize = 2)
 
         .bounce(brokerId = 0)
-        .consume("topicA", partition = 0, fetchOffset = 1, expectedTotalCount = 2, expectedFromTieredStorageCount = 1)
-        .consume("topicB", partition = 0, fetchOffset = 0, expectedTotalCount = 3, expectedFromTieredStorageCount = 2)
+        .consume("topicA", partition = 0, fetchOffset = 1, expectedTotal = 2, expectedFromTieredStorage = 1)
+        .consume("topicB", partition = 0, fetchOffset = 0, expectedTotal = 3, expectedFromTieredStorage = 2)
+        .expectFetchFromTieredStorage(fromBroker = 0, "topicA", partition = 0, count = 1)
+        .expectFetchFromTieredStorage(fromBroker = 0, "topicB", partition = 0, count = 1)
     }
   }
 
@@ -57,17 +59,23 @@ object TieredStorageTests {
     override protected def writeTestSpecifications(builder: TieredStorageTestBuilder): Unit = {
       builder
         .createTopic("topicA", partitionsCount = 1, replicationFactor = 2, segmentSize = 1)
+        .expectLeader("topicA", partition = 0, brokerId = 0)
+        .expectInIsr("topicA", partition = 0, brokerId = 1)
         .produce("topicA", 0, "k1", "v1")
         .produce("topicA", 0, "k2", "v2")
         .produce("topicA", 0, "k3", "v3")
         .expectSegmentToBeOffloaded(fromBroker = 0, "topicA", partition = 0, baseOffset = 0, segmentSize = 1)
         .expectSegmentToBeOffloaded(fromBroker = 0, "topicA", partition = 0, baseOffset = 1, segmentSize = 1)
-        .consume("topicA", partition = 0, fetchOffset = 1, expectedTotalCount = 2, expectedFromTieredStorageCount = 1)
-
+        .consume("topicA", partition = 0, fetchOffset = 1, expectedTotal = 2, expectedFromTieredStorage = 1)
+/*
         .stop(brokerId = 1)
         .eraseBrokerStorage(brokerId = 1)
         .start(brokerId = 1)
-        .consume("topicA", partition = 0, fetchOffset = 1, expectedTotalCount = 2, expectedFromTieredStorageCount = 1)
+        .expectLeader("topicA", partition = 0, brokerId = 0)
+        .expectInIsr("topicA", partition = 0, brokerId = 1)
+        .consume("topicA", partition = 0, fetchOffset = 0, expectedTotal = 2, expectedFromTieredStorage = 1)
+        .expectFetchFromTieredStorage(fromBroker = 1, "topicA", partition = 0, count = 2)
+*/
     }
   }
 }

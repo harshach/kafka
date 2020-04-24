@@ -3,11 +3,12 @@ package integration.kafka.tiered.storage
 import java.util.Properties
 import java.util.concurrent.TimeUnit
 
+import kafka.utils.TestUtils
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.TopicConfig
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorageCondition.expectEvent
-import org.apache.kafka.common.log.remote.storage.LocalTieredStorageEvent.EventType.OFFLOAD_SEGMENT
+import org.apache.kafka.common.log.remote.storage.LocalTieredStorageEvent.EventType.{FETCH_SEGMENT, OFFLOAD_SEGMENT}
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset
 import org.apache.kafka.common.serialization.{Serde, Serdes}
 import org.hamcrest.MatcherAssert.assertThat
@@ -15,6 +16,7 @@ import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
 import unit.kafka.utils.RecordsMatcher.correspondTo
 
 import scala.collection.JavaConverters._
+import scala.compat.java8.OptionConverters._
 import scala.collection.{Seq, mutable}
 
 final case class OffloadedSegmentSpec(val sourceBrokerId: Int,
@@ -28,7 +30,9 @@ final case class TopicSpec(val topicName: String,
                            val segmentSize: Int,
                            val properties: Properties = new Properties)
 
-final class RemoteFetchRequestSpec(val brokerId: Int, val fetchOffset: Long)
+final case class RemoteFetchSpec(val sourceBrokerId: Int,
+                                 val topicPartition: TopicPartition,
+                                 val count: Int)
 
 trait TieredStorageTestAction {
 
@@ -129,11 +133,15 @@ final class ProduceAction(val offloadedSegmentSpecs: Map[TopicPartition, Seq[Off
 final class ConsumeAction(val topicPartition: TopicPartition,
                           val fetchOffset: Long,
                           val expectedTotalCount: Int,
-                          val expectedFromTieredStorageCount: Int) extends TieredStorageTestAction {
+                          val expectedFromTieredStorageCount: Int,
+                          val remoteFetchSpec: RemoteFetchSpec) extends TieredStorageTestAction {
 
   private implicit val serde: Serde[String] = Serdes.String()
 
   override def execute(context: TieredStorageTestContext): Unit = {
+    val history = context.getTieredStorageHistory(remoteFetchSpec.sourceBrokerId)
+    val latestEventSoFar = history.latestEvent(FETCH_SEGMENT, topicPartition).asScala
+
     val consumedRecords = context.consume(topicPartition, expectedTotalCount, fetchOffset)
 
     if (expectedFromTieredStorageCount == 0) {
@@ -141,6 +149,7 @@ final class ConsumeAction(val topicPartition: TopicPartition,
     }
 
     val snapshot = context.takeTieredStorageSnapshot()
+
     val tieredStorageRecords = snapshot
         .getFilesets(topicPartition).asScala
         .sortWith((x, y) => x.getRecords.get(0).offset() <= y.getRecords.get(0).offset())
@@ -153,12 +162,12 @@ final class ConsumeAction(val topicPartition: TopicPartition,
     val recordsCountFromFirstIndex = tieredStorageRecords.size - indexOfFetchOffsetInTieredStorage
 
     assertFalse(
-      s"Not enough records found in tiered storage from offset $fetchOffset. " +
+      s"Not enough records found in tiered storage from offset $fetchOffset for $topicPartition. " +
       s"Expected: $expectedFromTieredStorageCount, Was $recordsCountFromFirstIndex",
       expectedFromTieredStorageCount > recordsCountFromFirstIndex)
 
     assertFalse(
-      s"Too many records found in tiered storage from offset $fetchOffset. " +
+      s"Too many records found in tiered storage from offset $fetchOffset for $topicPartition. " +
       s"Expected: $expectedFromTieredStorageCount, Was $recordsCountFromFirstIndex",
       expectedFromTieredStorageCount < recordsCountFromFirstIndex
     )
@@ -167,6 +176,11 @@ final class ConsumeAction(val topicPartition: TopicPartition,
     val readRecords = consumedRecords.take(expectedFromTieredStorageCount)
 
     assertThat(storedRecords, correspondTo(readRecords, topicPartition))
+
+    val events = history.getEvents(FETCH_SEGMENT, topicPartition).asScala
+    val eventsInScope = latestEventSoFar.map(e => events.filter(_.isAfter(e))).getOrElse(events)
+
+    assertEquals(remoteFetchSpec.count, eventsInScope.size)
   }
 }
 
@@ -186,6 +200,18 @@ final class EraseBrokerStorageAction(val brokerId: Int) extends TieredStorageTes
   override def execute(context: TieredStorageTestContext): Unit = context.eraseBrokerStorage(brokerId)
 }
 
+final class ExpectLeaderAction(val topicPartition: TopicPartition, val brokerId: Int) extends TieredStorageTestAction {
+  override def execute(context: TieredStorageTestContext): Unit = {
+    TestUtils.assertLeader(context.getAdmin(), topicPartition, brokerId)
+  }
+}
+
+final class ExpectBrokerInISR(val topicPartition: TopicPartition, brokerId: Int) extends TieredStorageTestAction {
+  override def execute(context: TieredStorageTestContext): Unit = {
+    TestUtils.waitForBrokersInIsr(context.getAdmin(), topicPartition, Set(brokerId))
+  }
+}
+
 /**
   * This builder helps to formulate a test case exercising the tiered storage functionality and formulate
   * the expectations following the execution of the test.
@@ -195,7 +221,7 @@ final class TieredStorageTestBuilder {
   private var offloadables: mutable.Map[TopicPartition, mutable.Buffer[(Int, Int, Int)]] = mutable.Map()
 
   private var consumables: mutable.Map[TopicPartition, (Long, Int, Int)] = mutable.Map()
-  //private var fetchables: mutable.Map[TopicPartition, ()] = mutable.Map()
+  private var fetchables: mutable.Map[TopicPartition, (Int, Int)] = mutable.Map()
 
   private val actions = mutable.Buffer[TieredStorageTestAction]()
 
@@ -223,25 +249,6 @@ final class TieredStorageTestBuilder {
     this
   }
 
-  def consume(topic: String,
-              partition: Int,
-              fetchOffset: Long,
-              expectedTotalCount: Int,
-              expectedFromTieredStorageCount: Int): this.type = {
-
-    assert(partition >= 0, "Partition must be >= 0")
-    assert(fetchOffset >= 0, "Fecth offset must be >=0")
-    assert(expectedTotalCount >= 1, "Must read at least one record")
-    assert(expectedFromTieredStorageCount >= 0, "Expected read cannot be < 0")
-    assert(expectedFromTieredStorageCount <= expectedTotalCount, "Cannot fetch more records than consumed")
-
-    val topicPartition = new TopicPartition(topic, partition)
-
-    assert(!consumables.contains(topicPartition), s"Consume already in progress for $topicPartition")
-    consumables += topicPartition -> (fetchOffset, expectedTotalCount, expectedFromTieredStorageCount)
-    this
-  }
-
   def expectSegmentToBeOffloaded(fromBroker: Int, topic: String, partition: Int,
                                  baseOffset: Int, segmentSize: Int): this.type = {
 
@@ -253,6 +260,46 @@ final class TieredStorageTestBuilder {
       case None => offloadables += topicPartition -> mutable.Buffer(attrs)
     }
 
+    this
+  }
+
+  def consume(topic: String,
+              partition: Int,
+              fetchOffset: Long,
+              expectedTotal: Int,
+              expectedFromTieredStorage: Int): this.type = {
+
+    assert(partition >= 0, "Partition must be >= 0")
+    assert(fetchOffset >= 0, "Fecth offset must be >=0")
+    assert(expectedTotal >= 1, "Must read at least one record")
+    assert(expectedFromTieredStorage >= 0, "Expected read cannot be < 0")
+    assert(expectedFromTieredStorage <= expectedTotal, "Cannot fetch more records than consumed")
+
+    val topicPartition = new TopicPartition(topic, partition)
+
+    assert(!consumables.contains(topicPartition), s"Consume already in progress for $topicPartition")
+    consumables += topicPartition -> (fetchOffset, expectedTotal, expectedFromTieredStorage)
+    this
+  }
+
+  def expectLeader(topic: String, partition: Int, brokerId: Int): this.type = {
+    actions += new ExpectLeaderAction(new TopicPartition(topic, partition), brokerId)
+    this
+  }
+
+  def expectInIsr(topic: String, partition: Int, brokerId: Int): this.type = {
+    actions += new ExpectBrokerInISR(new TopicPartition(topic, partition), brokerId)
+    this
+  }
+
+  def expectFetchFromTieredStorage(fromBroker: Int, topic: String, partition: Int, count: Int): this.type = {
+    assert(partition >= 0, "Partition must be >= 0")
+    assert(count >= 0, "Expected fetch count from tiered storage must be >= 0")
+
+    val topicPartition = new TopicPartition(topic, partition)
+
+    assert(!fetchables.contains(topicPartition), s"Consume already in progress for $topicPartition")
+    fetchables += topicPartition -> (fromBroker, count)
     this
   }
 
@@ -316,9 +363,12 @@ final class TieredStorageTestBuilder {
     if (!consumables.isEmpty) {
       consumables.foreach {
         case (topicPartition, spec) =>
-          actions += new ConsumeAction(topicPartition, spec._1, spec._2, spec._3)
+          val (sourceBroker, fetchCount) = fetchables.get(topicPartition).getOrElse((0, 0))
+          val remoteFetchSpec = RemoteFetchSpec(sourceBroker, topicPartition, fetchCount)
+          actions += new ConsumeAction(topicPartition, spec._1, spec._2, spec._3, remoteFetchSpec)
       }
       consumables = mutable.Map()
+      fetchables = mutable.Map()
     }
   }
 }

@@ -25,6 +25,7 @@ import org.slf4j.LoggerFactory;
 import static java.lang.String.format;
 import static java.nio.file.Files.newInputStream;
 import static java.nio.file.StandardOpenOption.READ;
+import static org.apache.kafka.common.log.remote.storage.LocalTieredStorageEvent.*;
 import static org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset.RemoteLogSegmentFileType.OFFSET_INDEX;
 import static org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset.RemoteLogSegmentFileType.SEGMENT;
 import static org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset.RemoteLogSegmentFileType.TIME_INDEX;
@@ -41,6 +42,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.*;
 
 import static org.apache.kafka.common.log.remote.storage.LocalTieredStorageEvent.EventType.*;
 
@@ -113,6 +115,8 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     private volatile Transferer transferer = (from, to) -> Files.copy(from.toPath(), to.toPath());
     private volatile int brokerId;
 
+    private final AtomicInteger eventTimestamp = new AtomicInteger(-1);
+
     /**
      * Used to notify users of this storage of internal updates - new topic-partition recorded (upon directory
      * creation) and segment file written (upon segment file write(2)).
@@ -169,6 +173,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
         final String shouldDeleteOnClose = (String) configs.get(DELETE_ON_CLOSE_PROP);
         final String transfererClass = (String) configs.get(TRANSFERER_CLASS_PROP);
         final String isDeleteEnabled = (String) configs.get(ENABLE_DELETE_API_PROP);
+        final Integer brokerIdInt = (Integer) configs.get("broker.id");
 
         if (shouldDeleteOnClose != null) {
             deleteOnClose = Boolean.parseBoolean(shouldDeleteOnClose);
@@ -185,6 +190,10 @@ public final class LocalTieredStorage implements RemoteStorageManager {
             } catch (InstantiationException | IllegalAccessException | ClassNotFoundException | ClassCastException e) {
                 throw new RuntimeException(format("Cannot create transferer from class '%s'", transfererClass), e);
             }
+        }
+
+        if (brokerIdInt != null) {
+            brokerId = brokerIdInt;
         }
 
         if (storageDir == null) {
@@ -216,6 +225,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
             throws RemoteStorageException {
 
         return wrap(() -> {
+            final LocalTieredStorageEvent.Builder eventBuilder = newEventBuilder(OFFLOAD_SEGMENT, id);
             RemoteLogSegmentFileset fileset = null;
 
             try {
@@ -228,7 +238,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
 
                 fileset.copy(transferer, data);
 
-                storageListeners.onStorageEvent(new LocalTieredStorageEvent(OFFLOAD_SEGMENT, brokerId, id, fileset, null));
+                storageListeners.onStorageEvent(eventBuilder.withFileset(fileset).build());
 
             } catch (final Exception e) {
                 //
@@ -241,8 +251,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
                     fileset.delete();
                 }
 
-                storageListeners.onStorageEvent(new LocalTieredStorageEvent(OFFLOAD_SEGMENT, brokerId, id, fileset, e));
-
+                storageListeners.onStorageEvent(eventBuilder.withException(e).build());
                 throw e;
             }
 
@@ -260,7 +269,11 @@ public final class LocalTieredStorage implements RemoteStorageManager {
                     "End position cannot be less than startPosition", startPos, endPos);
         }
         return wrap(() -> {
+            final LocalTieredStorageEvent.Builder eventBuilder = newEventBuilder(FETCH_SEGMENT, metadata);
+            eventBuilder.withStartPosition(startPos).withEndPosition(endPos);
+
             try {
+
                 final RemoteLogSegmentFileset fileset = openFileset(storageDirectory, metadata.remoteLogSegmentId());
                 final InputStream inputStream = newInputStream(fileset.getFile(SEGMENT).toPath(), READ);
                 inputStream.skip(startPos);
@@ -268,12 +281,12 @@ public final class LocalTieredStorage implements RemoteStorageManager {
                 // endPosition is ignored at this stage. A wrapper around the file input stream can implement
                 // the upper bound on the stream.
 
-                storageListeners.onStorageEvent(new LocalTieredStorageEvent(FETCH_SEGMENT, brokerId, fileset, metadata, startPos, endPos));
+                storageListeners.onStorageEvent(eventBuilder.withFileset(fileset).build());
 
                 return inputStream;
 
             } catch (final Exception e) {
-                storageListeners.onStorageEvent(new LocalTieredStorageEvent(FETCH_SEGMENT, brokerId, metadata, startPos, endPos, e));
+                storageListeners.onStorageEvent(eventBuilder.withException(e).build());
                 throw e;
             }
         });
@@ -282,16 +295,18 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     @Override
     public InputStream fetchOffsetIndex(final RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         return wrap(() -> {
+            final LocalTieredStorageEvent.Builder eventBuilder = newEventBuilder(FETCH_OFFSET_INDEX, metadata);
+
             try {
                 final RemoteLogSegmentFileset fileset = openFileset(storageDirectory, metadata.remoteLogSegmentId());
                 final InputStream inputStream = newInputStream(fileset.getFile(OFFSET_INDEX).toPath(), READ);
 
-                storageListeners.onStorageEvent(new LocalTieredStorageEvent(FETCH_OFFSET_INDEX, brokerId, fileset, metadata));
+                storageListeners.onStorageEvent(eventBuilder.withFileset(fileset).build());
 
                 return inputStream;
 
             } catch (final Exception e) {
-                storageListeners.onStorageEvent(new LocalTieredStorageEvent(FETCH_OFFSET_INDEX, brokerId, metadata, e));
+                storageListeners.onStorageEvent(eventBuilder.withException(e).build());
                 throw e;
             }
         });
@@ -300,16 +315,18 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     @Override
     public InputStream fetchTimestampIndex(final RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         return wrap(() -> {
+            final LocalTieredStorageEvent.Builder eventBuilder = newEventBuilder(FETCH_TIME_INDEX, metadata);
+
             try {
                 final RemoteLogSegmentFileset fileset = openFileset(storageDirectory, metadata.remoteLogSegmentId());
                 final InputStream inputStream = newInputStream(fileset.getFile(TIME_INDEX).toPath(), READ);
 
-                storageListeners.onStorageEvent(new LocalTieredStorageEvent(FETCH_TIME_INDEX, brokerId, fileset, metadata));
+                storageListeners.onStorageEvent(eventBuilder.withFileset(fileset).build());
 
                 return inputStream;
 
             } catch (final Exception e) {
-                storageListeners.onStorageEvent(new LocalTieredStorageEvent(FETCH_TIME_INDEX, brokerId, metadata, e));
+                storageListeners.onStorageEvent(eventBuilder.withException(e).build());
                 throw e;
             }
         });
@@ -318,6 +335,8 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     @Override
     public void deleteLogSegment(final RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         wrap(() -> {
+            final LocalTieredStorageEvent.Builder eventBuilder = newEventBuilder(DELETE_SEGMENT, metadata);
+
             if (deleteEnabled) {
                 try {
                     final RemoteLogSegmentFileset fileset = openFileset(storageDirectory, metadata.remoteLogSegmentId());
@@ -327,10 +346,10 @@ public final class LocalTieredStorage implements RemoteStorageManager {
                                 metadata.remoteLogSegmentId());
                     }
 
-                    storageListeners.onStorageEvent(new LocalTieredStorageEvent(DELETE_SEGMENT, brokerId, fileset, metadata));
+                    storageListeners.onStorageEvent(eventBuilder.withFileset(fileset).build());
 
                 } catch (final Exception e) {
-                    storageListeners.onStorageEvent(new LocalTieredStorageEvent(DELETE_SEGMENT, brokerId, metadata, e));
+                    storageListeners.onStorageEvent(eventBuilder.withException(e).build());
                     throw e;
                 }
             }
@@ -387,6 +406,16 @@ public final class LocalTieredStorage implements RemoteStorageManager {
 
     int getBrokerId() {
         return brokerId;
+    }
+
+    private LocalTieredStorageEvent.Builder newEventBuilder(final EventType type, final RemoteLogSegmentId segId) {
+        return LocalTieredStorageEvent.newBuilder(type, eventTimestamp.incrementAndGet(), brokerId, segId);
+    }
+
+    private LocalTieredStorageEvent.Builder newEventBuilder(final EventType type, final RemoteLogSegmentMetadata md) {
+        return LocalTieredStorageEvent
+                .newBuilder(type, eventTimestamp.incrementAndGet(), brokerId,  md.remoteLogSegmentId())
+                .withMetadata(md);
     }
 
     private <U> U wrap(Callable<U> f) throws RemoteStorageException {
