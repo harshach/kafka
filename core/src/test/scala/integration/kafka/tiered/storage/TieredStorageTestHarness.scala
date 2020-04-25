@@ -25,7 +25,7 @@ import kafka.server.{KafkaConfig, KafkaServer}
 import kafka.utils.TestUtils.createBrokerConfigs
 import org.apache.kafka.common.log.remote.metadata.storage.RLMMWithTopicStorage
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorage
-import org.apache.kafka.common.log.remote.storage.LocalTieredStorage.{DELETE_ON_CLOSE_PROP, STORAGE_DIR_PROP}
+import org.apache.kafka.common.log.remote.storage.LocalTieredStorage.STORAGE_DIR_PROP
 import org.apache.kafka.common.replica.ReplicaSelector
 import org.junit.{After, Before, Test}
 import unit.kafka.utils.BrokerLocalStorage

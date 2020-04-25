@@ -1,3 +1,20 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package unit.kafka.utils
 
 import java.nio.ByteBuffer
@@ -10,10 +27,32 @@ import org.apache.kafka.common.serialization.{Deserializer, Serde}
 import org.apache.kafka.common.utils.Utils
 import org.hamcrest.{Description, TypeSafeDiagnosingMatcher}
 
-final class RecordsMatcher[R1, R2, K, V](private val expectedRecords: Iterable[R1],
-                                         private val topicPartition: TopicPartition,
-                                         private val keySerde: Serde[K],
-                                         private val valueSerde: Serde[V])
+/**
+  * Heterogeneous matcher between alternative types of records:
+  * [[ProducerRecord]], [[ConsumerRecord]] or [[Record]].
+  *
+  * Note that it is conceptually incorrect to try to match records at different stage of processing
+  * (produced, committed, consumed) because the essence of such records is different.
+  * Only a committed [[Record]] is univoque, whereas a [[ProducerRecord]] or [[ConsumerRecord]] is
+  * a physical representation of a record-to-be or viewed record.
+  *
+  * This matcher breaches that semantic so that testers can avoid performing manual comparisons on
+  * targeted internal fields of these type of records. This implementation only compares key and
+  * value of the records.
+  *
+  * @param expectedRecords The records expected.
+  * @param topicPartition The topic-partition which the records belong to.
+  * @param keySerde The [[Serde]] for the keys of the records.
+  * @param valueSerde The [[Serde]] for the values of the records.
+  * @tparam R1 The type of records used to formulate the expectations.
+  * @tparam R2 The type of records compared against the expectations.
+  * @tparam K The type of the record keys.
+  * @tparam V The type of the record values.
+  */
+final class RecordsKeyValueMatcher[R1, R2, K, V](private val expectedRecords: Iterable[R1],
+                                                 private val topicPartition: TopicPartition,
+                                                 private val keySerde: Serde[K],
+                                                 private val valueSerde: Serde[V])
 
   extends TypeSafeDiagnosingMatcher[Iterable[R2]] {
 
@@ -63,6 +102,9 @@ final class RecordsMatcher[R1, R2, K, V](private val expectedRecords: Iterable[R
       } else true
     }
 
+    //
+    // The actual comparison happens here.
+    //
     val keq = compare(expectedRecord.key(), actualRecord.key(), keySerde.deserializer(), "Record key")
     val veq = compare(expectedRecord.value(), actualRecord.value(), valueSerde.deserializer(), "Record value")
 
@@ -97,11 +139,22 @@ final class RecordsMatcher[R1, R2, K, V](private val expectedRecords: Iterable[R
   }
 }
 
-object RecordsMatcher {
+object RecordsKeyValueMatcher {
 
+  /**
+    * Provides a matcher which compares the key and value of a sequence of records with those of
+    * the expectedRecords sequence, in order.
+    *
+    * @param expectedRecords The records expected.
+    * @param topicPartition The topic-partition which the records belong to.
+    * @param keySerde The [[Serde]] for the keys of the records.
+    * @param valueSerde The [[Serde]] for the values of the records.
+    * @tparam K The type of the record keys.
+    * @tparam V The type of the record values.
+    */
   def correspondTo[K, V](expectedRecords: Iterable[Any], topicPartition: TopicPartition)
-                        (implicit keySerde: Serde[K], valueSerde: Serde[V]): RecordsMatcher[Any, Any, K, V] = {
-    new RecordsMatcher[Any, Any, K, V](expectedRecords, topicPartition, keySerde, valueSerde)
+                        (implicit keySerde: Serde[K], valueSerde: Serde[V]): RecordsKeyValueMatcher[Any, Any, K, V] = {
+    new RecordsKeyValueMatcher[Any, Any, K, V](expectedRecords, topicPartition, keySerde, valueSerde)
   }
 
 }

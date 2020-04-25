@@ -31,7 +31,7 @@ import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset
 import org.apache.kafka.common.serialization.{Serde, Serdes}
 import org.hamcrest.MatcherAssert.assertThat
 import org.junit.Assert.{assertEquals, assertFalse, fail}
-import unit.kafka.utils.RecordsMatcher.correspondTo
+import unit.kafka.utils.RecordsKeyValueMatcher.correspondTo
 
 import scala.jdk.CollectionConverters._
 import scala.compat.java8.OptionConverters._

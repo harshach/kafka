@@ -42,20 +42,6 @@ import scala.collection.mutable.ArrayBuffer
 import scala.jdk.CollectionConverters._
 import scala.collection.{Seq, mutable}
 
-/**
-  * This orchestrator is responsible for the execution of a test case against physical Apache Kafka broker(s)
-  * backed by a [[LocalTieredStorage]].
-  *
-  * It collaborates with [[TieredStorageTestSpec]] which provides it with the configuration of the topic to
-  * create, the records to send, and expectations on the results.
-  *
-  * As of now, the orchestrator always goes through the following steps:
-  *
-  * 1) Create a topic;
-  * 2) Produce records;
-  * 3) Consume records;
-  * 4) Verify records from Kafka and the [[LocalTieredStorage]].
-  */
 final class TieredStorageTestContext(private val zookeeperClient: KafkaZkClient,
                                      private val brokers: Seq[KafkaServer],
                                      private val producerConfig: Properties,

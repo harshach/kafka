@@ -140,7 +140,7 @@ object TieredStorageTests {
     *    - B0 restores the availability both active and remote log segments upon restart.
     */
   final class CanFetchFromTieredStorageAfterRecoveryOfLocalSegmentsTest extends TieredStorageTestHarness {
-    private val (broker0, broker1, topic, p0) = (0, 1, "topicA", 0)
+    private val (broker0, broker1, topicA, p0) = (0, 1, "topicA", 0)
 
     /* Cluster of two brokers */
     override protected def brokerCount: Int = 2
@@ -148,17 +148,17 @@ object TieredStorageTests {
     override protected def writeTestSpecifications(builder: TieredStorageTestBuilder): Unit = {
       builder
         /* (A.1) */
-        .createTopic(topic, partitionsCount = 1, replicationFactor = 2, segmentSize = 1)
-        .produce(topic, p0, ("k1", "v1"), ("k2", "v2"), ("k3", "v3"))
-        .expectSegmentToBeOffloaded(broker0, topic, p0, baseOffset = 0, segmentSize = 1)
-        .expectSegmentToBeOffloaded(broker0, topic, p0, baseOffset = 1, segmentSize = 1)
+        .createTopic(topicA, partitionsCount = 1, replicationFactor = 2, segmentSize = 1)
+        .produce(topicA, p0, ("k1", "v1"), ("k2", "v2"), ("k3", "v3"))
+        .expectSegmentToBeOffloaded(broker0, topicA, p0, baseOffset = 0, segmentSize = 1)
+        .expectSegmentToBeOffloaded(broker0, topicA, p0, baseOffset = 1, segmentSize = 1)
 
         /* (B.1) Stop B0 and read remote log segments from the leader replica which moved to B1. */
-        .expectLeader(topic, p0, broker0)
+        .expectLeader(topicA, p0, broker0)
         .stop(broker0)
-        .expectLeader(topic, p0, broker1)
-        .consume(topic, p0, fetchOffset = 0, expectedTotalRecord = 3, expectedRecordsFromSecondTier = 2)
-        .expectFetchFromTieredStorage(broker1, topic, p0, recordCount = 2)
+        .expectLeader(topicA, p0, broker1)
+        .consume(topicA, p0, fetchOffset = 0, expectedTotalRecord = 3, expectedRecordsFromSecondTier = 2)
+        .expectFetchFromTieredStorage(broker1, topicA, p0, recordCount = 2)
 
         /*
          * (B.2) Restore previous leader with an empty storage. The active segment is expected to be
@@ -168,7 +168,7 @@ object TieredStorageTests {
          */
         .eraseBrokerStorage(broker0)
         .start(broker0)
-        .expectLeader(topic, p0, broker0, electLeader = true)
+        .expectLeader(topicA, p0, broker0, electLeader = true)
         //
         // TODO There is a race condition here. If consumption happens "too soon" and the remote log metadata
         //      manager has not been given enough time to update the remote log metadata, only the
@@ -177,8 +177,8 @@ object TieredStorageTests {
         //      we can evaluate if a stronger consistency is wished on broker restart such that a log
         //      is not available for consumption until the metadata for its remote segments have been processed.
         //
-        .consume(topic, p0, fetchOffset = 0, expectedTotalRecord = 3, expectedRecordsFromSecondTier = 2)
-        .expectFetchFromTieredStorage(broker0, topic, p0, recordCount = 2)
+        .consume(topicA, p0, fetchOffset = 0, expectedTotalRecord = 3, expectedRecordsFromSecondTier = 2)
+        .expectFetchFromTieredStorage(broker0, topicA, p0, recordCount = 2)
     }
   }
 
