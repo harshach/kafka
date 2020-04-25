@@ -72,17 +72,6 @@ public final class LocalTieredStorageEvent implements Comparable<LocalTieredStor
     }
 
     @Override
-    public int hashCode() {
-        return timestamp % 31;
-    }
-
-    @Override
-    public boolean equals(Object other) {
-        return (other instanceof LocalTieredStorageEvent)
-                && (((LocalTieredStorageEvent)other).timestamp == timestamp);
-    }
-
-    @Override
     public int compareTo(LocalTieredStorageEvent other) {
         requireNonNull(other);
 
