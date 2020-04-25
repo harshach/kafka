@@ -5,7 +5,7 @@ import java.util.concurrent.TimeUnit
 
 import kafka.utils.{TestUtils, nonthreadsafe}
 import org.apache.kafka.clients.producer.ProducerRecord
-import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.{ElectionType, TopicPartition}
 import org.apache.kafka.common.config.TopicConfig
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorageCondition.expectEvent
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorageEvent.EventType.{FETCH_SEGMENT, OFFLOAD_SEGMENT}
@@ -200,15 +200,21 @@ final class EraseBrokerStorageAction(val brokerId: Int) extends TieredStorageTes
   override def execute(context: TieredStorageTestContext): Unit = context.eraseBrokerStorage(brokerId)
 }
 
-final class ExpectLeaderAction(val topicPartition: TopicPartition, val brokerId: Int) extends TieredStorageTestAction {
+final class ExpectLeaderAction(val topicPartition: TopicPartition, val replicaId: Int, val electLeader: Boolean)
+  extends TieredStorageTestAction {
+
   override def execute(context: TieredStorageTestContext): Unit = {
-    TestUtils.assertLeader(context.getAdmin(), topicPartition, brokerId)
+    if (electLeader) {
+      context.admin().electLeaders(ElectionType.PREFERRED, Set(topicPartition).asJava)
+    }
+
+    TestUtils.assertLeader(context.admin(), topicPartition, replicaId)
   }
 }
 
-final class ExpectBrokerInISR(val topicPartition: TopicPartition, brokerId: Int) extends TieredStorageTestAction {
+final class ExpectBrokerInISR(val topicPartition: TopicPartition, replicaId: Int) extends TieredStorageTestAction {
   override def execute(context: TieredStorageTestContext): Unit = {
-    TestUtils.waitForBrokersInIsr(context.getAdmin(), topicPartition, Set(brokerId))
+    TestUtils.waitForBrokersInIsr(context.admin(), topicPartition, Set(replicaId))
   }
 }
 
@@ -283,8 +289,8 @@ final class TieredStorageTestBuilder {
     this
   }
 
-  def expectLeader(topic: String, partition: Int, brokerId: Int): this.type = {
-    actions += new ExpectLeaderAction(new TopicPartition(topic, partition), brokerId)
+  def expectLeader(topic: String, partition: Int, brokerId: Int, electLeader: Boolean = false): this.type = {
+    actions += new ExpectLeaderAction(new TopicPartition(topic, partition), brokerId, electLeader)
     this
   }
 

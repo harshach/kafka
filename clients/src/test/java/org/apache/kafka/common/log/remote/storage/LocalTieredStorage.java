@@ -18,6 +18,7 @@ package org.apache.kafka.common.log.remote.storage;
 
 import org.apache.kafka.common.errors.InvalidConfigurationException;
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorageListener.LocalTieredStorageListeners;
+import org.apache.kafka.common.utils.*;
 import org.apache.kafka.test.TestUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -107,13 +108,13 @@ public final class LocalTieredStorage implements RemoteStorageManager {
 
     private static final String ROOT_STORAGES_DIR_NAME = "kafka-tiered-storage";
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(LocalTieredStorage.class);
-
     private volatile File storageDirectory;
     private volatile boolean deleteOnClose = true;
     private volatile boolean deleteEnabled = true;
     private volatile Transferer transferer = (from, to) -> Files.copy(from.toPath(), to.toPath());
     private volatile int brokerId;
+
+    private volatile Logger logger = LoggerFactory.getLogger(LocalTieredStorage.class);
 
     private final AtomicInteger eventTimestamp = new AtomicInteger(-1);
 
@@ -194,12 +195,13 @@ public final class LocalTieredStorage implements RemoteStorageManager {
 
         if (brokerIdInt != null) {
             brokerId = brokerIdInt;
+            logger = new LogContext(format("[LocalTieredStorage Id=%d] ", brokerId)).logger(this.getClass());
         }
 
         if (storageDir == null) {
             storageDirectory = TestUtils.tempDirectory(ROOT_STORAGES_DIR_NAME + "-");
 
-            LOGGER.debug("No storage directory specified, created temporary directory: {}",
+            logger.debug("No storage directory specified, created temporary directory: {}",
                     storageDirectory.getAbsolutePath());
 
         } else {
@@ -207,17 +209,17 @@ public final class LocalTieredStorage implements RemoteStorageManager {
             final boolean existed = storageDirectory.exists();
 
             if (!existed) {
-                LOGGER.info("Creating directory: [{}]", storageDirectory.getAbsolutePath());
+                logger.info("Creating directory: [{}]", storageDirectory.getAbsolutePath());
                 storageDirectory.mkdirs();
 
             } else {
-                LOGGER.warn("Remote storage with ID [{}] already exists on the file system. Any data already " +
+                logger.warn("Remote storage with ID [{}] already exists on the file system. Any data already " +
                         "in the remote storage will not be deleted and may result in an inconsistent state and/or " +
                         "provide stale data.", storageDir);
             }
         }
 
-        LOGGER.info("Created local tiered storage: [{}]", storageDirectory.getName());
+        logger.info("Created local tiered storage manager [{}]", brokerId, storageDirectory.getName());
     }
 
     @Override
@@ -231,7 +233,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
             try {
                 fileset = openFileset(storageDirectory, id);
 
-                LOGGER.info("Transferring log segment for topic={} partition={} from offset={}",
+                logger.info("Transferring logger segment for topic={} partition={} from offset={}",
                         id.topicPartition().topic(),
                         id.topicPartition().partition(),
                         data.logSegment().getName().split("\\.")[0]);
@@ -367,7 +369,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
             final Optional<File> notADirectory = Arrays.stream(files).filter(f -> !f.isDirectory()).findAny();
 
             if (notADirectory.isPresent()) {
-                LOGGER.warn("Found file [{}] which is not a remote topic-partition directory. " +
+                logger.warn("Found file [{}] which is not a remote topic-partition directory. " +
                         "Stopping the deletion process.", notADirectory.get());
                 //
                 // If an unexpected state is encountered, do not proceed with the delete of the local storage,
@@ -392,7 +394,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
             }
 
         } catch (final Exception e) {
-            LOGGER.error("Error while deleting remote storage. Stopping the deletion process.", e);
+            logger.error("Error while deleting remote storage. Stopping the deletion process.", e);
         }
     }
 

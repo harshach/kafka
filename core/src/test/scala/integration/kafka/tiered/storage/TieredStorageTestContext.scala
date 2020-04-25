@@ -11,7 +11,7 @@ import kafka.utils.TestUtils
 import kafka.zk.KafkaZkClient
 import org.apache.kafka.clients.CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG
 import org.apache.kafka.clients.admin.{Admin, AdminClient}
-import org.apache.kafka.clients.consumer.{ConsumerRecord, KafkaConsumer}
+import org.apache.kafka.clients.consumer.{ConsumerRecord, ConsumerRecords, KafkaConsumer}
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.log.remote.storage.{LocalTieredStorage, LocalTieredStorageHistory, LocalTieredStorageSnapshot}
@@ -20,6 +20,7 @@ import org.apache.kafka.common.serialization.Serdes
 import org.apache.kafka.common.utils.Utils
 import unit.kafka.utils.BrokerLocalStorage
 
+import scala.collection.mutable.ArrayBuffer
 import scala.jdk.CollectionConverters._
 import scala.collection.{Seq, mutable}
 
@@ -48,7 +49,7 @@ final class TieredStorageTestContext(private val zookeeperClient: KafkaZkClient,
 
   @volatile private var producer: KafkaProducer[String, String] = _
   @volatile private var consumer: KafkaConsumer[String, String] = _
-  @volatile private var admin: Admin = _
+  @volatile private var adminClient: Admin = _
 
   @volatile private var tieredStorages: Seq[LocalTieredStorage] = _
   @volatile private var localStorages: Seq[BrokerLocalStorage] = _
@@ -65,7 +66,7 @@ final class TieredStorageTestContext(private val zookeeperClient: KafkaZkClient,
 
     producer = new KafkaProducer[String, String](producerConfig, ser, ser)
     consumer = new KafkaConsumer[String, String](consumerConfig, de, de)
-    admin = AdminClient.create(adminConfig)
+    adminClient = AdminClient.create(adminConfig)
 
     tieredStorages = TieredStorageTestHarness.getTieredStorages(brokers)
     localStorages = TieredStorageTestHarness.getLocalStorages(brokers)
@@ -89,7 +90,23 @@ final class TieredStorageTestContext(private val zookeeperClient: KafkaZkClient,
 
     consumer.assign(Seq(topicPartition).asJava)
     consumer.seek(topicPartition, fetchOffset)
-    TestUtils.consumeRecords(consumer, numberOfRecords)
+
+    val records = new ArrayBuffer[ConsumerRecord[String, String]]
+    def pollAction(polledRecords: ConsumerRecords[String, String]): Boolean = {
+      records ++= polledRecords.asScala
+      records.size >= numberOfRecords
+    }
+
+    val timeoutMs = 60000L
+    val sep = System.lineSeparator()
+
+    TestUtils.pollRecordsUntilTrue(consumer,
+      pollAction,
+      waitTimeMs = timeoutMs,
+      msg = s"Could not consume $numberOfRecords records of $topicPartition from offset $fetchOffset " +
+        s"in $timeoutMs ms. ${records.size} message(s) consumed:$sep ${records.mkString(sep)}")
+
+    records
   }
 
   def bounce(brokerId: Int): Unit = {
@@ -97,7 +114,7 @@ final class TieredStorageTestContext(private val zookeeperClient: KafkaZkClient,
 
     producer.close(Duration.ofSeconds(5))
     consumer.close(Duration.ofSeconds(5))
-    admin.close()
+    adminClient.close()
 
     broker.shutdown()
     broker.awaitShutdown()
@@ -117,7 +134,7 @@ final class TieredStorageTestContext(private val zookeeperClient: KafkaZkClient,
 
     producer.close(Duration.ofSeconds(5))
     consumer.close(Duration.ofSeconds(5))
-    admin.close()
+    adminClient.close()
 
     broker.startup()
 
@@ -140,12 +157,12 @@ final class TieredStorageTestContext(private val zookeeperClient: KafkaZkClient,
 
   def getLocalStorages: Seq[BrokerLocalStorage] = localStorages
 
-  def getAdmin() = admin
+  def admin() = adminClient
 
   def close(): Unit = {
     getTieredStorages.find(_ => true).foreach(_.clear())
     Utils.closeAll(producer, consumer)
-    admin.close()
+    adminClient.close()
   }
 
 }

@@ -50,6 +50,9 @@ object TieredStorageTests {
     }
   }
 
+  /**
+    * Disaster recovery
+    */
   final class CanFetchFromTieredStorageAfterRecoveryOfLocalSegmentsTest extends TieredStorageTestHarness {
 
     override protected def brokerCount: Int = 2
@@ -57,8 +60,6 @@ object TieredStorageTests {
     override protected def writeTestSpecifications(builder: TieredStorageTestBuilder): Unit = {
       builder
         .createTopic("topicA", partitionsCount = 1, replicationFactor = 2, segmentSize = 1)
-        .expectLeader("topicA", partition = 0, brokerId = 0)
-        .expectInIsr("topicA", partition = 0, brokerId = 1)
         .produce("topicA", 0, "k1", "v1")
         .produce("topicA", 0, "k2", "v2")
         .produce("topicA", 0, "k3", "v3")
@@ -68,9 +69,9 @@ object TieredStorageTests {
         .stop(brokerId = 0)
         .eraseBrokerStorage(brokerId = 0)
         .start(brokerId = 0)
-        .expectLeader("topicA", partition = 0, brokerId = 1)
+        .expectLeader("topicA", partition = 0, brokerId = 0, electLeader = true)
         .consume("topicA", partition = 0, fetchOffset = 0, expectedTotal = 3, expectedFromTieredStorage = 2)
-        .expectFetchFromTieredStorage(fromBroker = 1, "topicA", partition = 0, count = 2)
+        .expectFetchFromTieredStorage(fromBroker = 0, "topicA", partition = 0, count = 2)
     }
   }
 

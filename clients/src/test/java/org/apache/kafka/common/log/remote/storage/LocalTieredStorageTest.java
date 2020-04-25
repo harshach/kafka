@@ -91,7 +91,7 @@ public final class LocalTieredStorageTest {
 
     @After
     public void after() {
-        tieredStorage.close();
+        tieredStorage.clear();
         localLogSegments.deleteAll();
     }
 
