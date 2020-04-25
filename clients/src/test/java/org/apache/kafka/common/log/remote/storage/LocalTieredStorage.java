@@ -18,20 +18,10 @@ package org.apache.kafka.common.log.remote.storage;
 
 import org.apache.kafka.common.errors.InvalidConfigurationException;
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorageListener.LocalTieredStorageListeners;
-import org.apache.kafka.common.utils.*;
+import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.test.TestUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import static java.lang.String.format;
-import static java.nio.file.Files.newInputStream;
-import static java.nio.file.StandardOpenOption.READ;
-import static org.apache.kafka.common.log.remote.storage.LocalTieredStorageEvent.*;
-import static org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset.RemoteLogSegmentFileType.OFFSET_INDEX;
-import static org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset.RemoteLogSegmentFileType.SEGMENT;
-import static org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset.RemoteLogSegmentFileType.TIME_INDEX;
-import static org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset.openFileset;
-import static org.apache.kafka.common.log.remote.storage.RemoteTopicPartitionDirectory.openExistingTopicPartitionDirectory;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -43,9 +33,22 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Callable;
-import java.util.concurrent.atomic.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.apache.kafka.common.log.remote.storage.LocalTieredStorageEvent.EventType.*;
+import static java.lang.String.format;
+import static java.nio.file.Files.newInputStream;
+import static java.nio.file.StandardOpenOption.READ;
+import static org.apache.kafka.common.log.remote.storage.LocalTieredStorageEvent.EventType;
+import static org.apache.kafka.common.log.remote.storage.LocalTieredStorageEvent.EventType.DELETE_SEGMENT;
+import static org.apache.kafka.common.log.remote.storage.LocalTieredStorageEvent.EventType.FETCH_OFFSET_INDEX;
+import static org.apache.kafka.common.log.remote.storage.LocalTieredStorageEvent.EventType.FETCH_SEGMENT;
+import static org.apache.kafka.common.log.remote.storage.LocalTieredStorageEvent.EventType.FETCH_TIME_INDEX;
+import static org.apache.kafka.common.log.remote.storage.LocalTieredStorageEvent.EventType.OFFLOAD_SEGMENT;
+import static org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset.RemoteLogSegmentFileType.OFFSET_INDEX;
+import static org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset.RemoteLogSegmentFileType.SEGMENT;
+import static org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset.RemoteLogSegmentFileType.TIME_INDEX;
+import static org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset.openFileset;
+import static org.apache.kafka.common.log.remote.storage.RemoteTopicPartitionDirectory.openExistingTopicPartitionDirectory;
 
 /**
  * An implementation of {@link RemoteStorageManager} which relies on the local file system to store
@@ -127,7 +130,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     private final LocalTieredStorageHistory history = new LocalTieredStorageHistory();
 
     public LocalTieredStorage() {
-        addListener(history.new InternalListener());
+        history.listenTo(this);
     }
 
     /**
@@ -233,9 +236,8 @@ public final class LocalTieredStorage implements RemoteStorageManager {
             try {
                 fileset = openFileset(storageDirectory, id);
 
-                logger.info("Transferring logger segment for topic={} partition={} from offset={}",
-                        id.topicPartition().topic(),
-                        id.topicPartition().partition(),
+                logger.info("Offloading log segment for {} from offset={}",
+                        id.topicPartition(),
                         data.logSegment().getName().split("\\.")[0]);
 
                 fileset.copy(transferer, data);

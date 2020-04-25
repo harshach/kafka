@@ -16,12 +16,11 @@
  * limitations under the License.
  */
 
-package integration.kafka.tiered.storage
+package kafka.tiered.storage
 
 import java.util.Optional
 
-import integration.kafka.tiered.storage.TieredStorageTests.{CanFetchFromTieredStorageAfterRecoveryOfLocalSegmentsTest, OffloadAndConsumeFromLeaderTest}
-import kafka.tiered.storage.TieredStorageTestHarness
+import kafka.tiered.storage.TieredStorageTests.{CanFetchFromTieredStorageAfterRecoveryOfLocalSegmentsTest, OffloadAndConsumeFromLeaderTest}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.replica.{ClientMetadata, PartitionView, ReplicaSelector, ReplicaView}
@@ -33,9 +32,6 @@ import org.junit.runners.Suite
 import scala.jdk.CollectionConverters._
 import scala.compat.java8.OptionConverters._
 
-/**
-  * The integration tests for the tiered-storage functionality are gathered here.
-  */
 @SuiteClasses(Array[Class[_]](
   classOf[OffloadAndConsumeFromLeaderTest],
   classOf[CanFetchFromTieredStorageAfterRecoveryOfLocalSegmentsTest]
@@ -99,7 +95,7 @@ object TieredStorageTests {
          *                                            *-------------------*
          */
         .createTopic(topicB, partitionsCount = 1, replicationFactor = 1, segmentSize = 2)
-        .produce(topicB, 0, ("k1", "v1"), ("k2", "v2"), ("k3", "v3"))
+        .produce(topicB, p0, ("k1", "v1"), ("k2", "v2"), ("k3", "v3"))
         .expectSegmentToBeOffloaded(broker, topicB, p0, baseOffset = 0, segmentSize = 2)
 
         /*
@@ -114,7 +110,7 @@ object TieredStorageTests {
          *       - For topic B, only one segment is present in the tiered storage, as asserted by the
          *         previous sub-test-case.
          */
-        .bounce(brokerId = 0)
+        .bounce(broker)
         .consume(topicA, p0, fetchOffset = 1, expectedTotalRecord = 2, expectedRecordsFromSecondTier = 1)
         .consume(topicB, p0, fetchOffset = 1, expectedTotalRecord = 2, expectedRecordsFromSecondTier = 1)
         .expectFetchFromTieredStorage(broker, topicA, p0, recordCount = 1)
@@ -137,7 +133,14 @@ object TieredStorageTests {
     *    -----------
     *    - Remote log segments of Ta-p0 are fetched from B1 when B0 is offline.
     *    - B0 restores the availability both active and remote log segments upon restart.
+    *    - This assumes the remote log metadata which were lost on B0 can be recovered.
+    *      To that end, the remote log metadata topic should have a replication factor of at least two
+    *      so that the lost partitions on B0 can be recovered from B1.
     */
+  //
+  // TODO In order to assess the last point deterministically, move all leaders of the metadata
+  //      topic-partitions to B0 with replication on B1.
+  //
   final class CanFetchFromTieredStorageAfterRecoveryOfLocalSegmentsTest extends TieredStorageTestHarness {
     private val (broker0, broker1, topicA, p0) = (0, 1, "topicA", 0)
 
@@ -146,13 +149,15 @@ object TieredStorageTests {
 
     override protected def writeTestSpecifications(builder: TieredStorageTestBuilder): Unit = {
       builder
-        /* (A.1) */
         .createTopic(topicA, partitionsCount = 1, replicationFactor = 2, segmentSize = 1)
         .produce(topicA, p0, ("k1", "v1"), ("k2", "v2"), ("k3", "v3"))
         .expectSegmentToBeOffloaded(broker0, topicA, p0, baseOffset = 0, segmentSize = 1)
         .expectSegmentToBeOffloaded(broker0, topicA, p0, baseOffset = 1, segmentSize = 1)
 
-        /* (B.1) Stop B0 and read remote log segments from the leader replica which moved to B1. */
+        /*
+         * (B.1) Stop B0 and read remote log segments from the leader replica which is expected
+         *       to be moved to B1.
+         */
         .expectLeader(topicA, p0, broker0)
         .stop(broker0)
         .expectLeader(topicA, p0, broker1)

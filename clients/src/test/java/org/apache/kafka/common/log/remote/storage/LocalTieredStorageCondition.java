@@ -1,12 +1,30 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.apache.kafka.common.log.remote.storage;
 
-import org.apache.kafka.common.*;
-import org.apache.kafka.common.log.remote.storage.LocalTieredStorageEvent.*;
+import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.log.remote.storage.LocalTieredStorageEvent.EventType;
 
-import java.util.concurrent.*;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
-import static java.lang.String.*;
-import static java.util.Objects.*;
+import static java.lang.String.format;
+import static java.util.Objects.requireNonNull;
 
 public final class LocalTieredStorageCondition {
     final EventType eventType;
@@ -43,7 +61,7 @@ public final class LocalTieredStorageCondition {
     public void waitUntilTrue(final long timeout, final TimeUnit unit) throws InterruptedException, TimeoutException {
         final long start = System.currentTimeMillis();
 
-        if (!listener.latch.await(timeout, unit)) {
+        if (!listener.awaitEvent(timeout, unit)) {
             throw new TimeoutException(format("Time out reached before condition was verified %s", this));
         }
 
@@ -58,14 +76,23 @@ public final class LocalTieredStorageCondition {
                 eventType, brokerId, topicPartition, failed);
     }
 
-    private final class InternalListener implements LocalTieredStorageListener {
+    private static final class InternalListener implements LocalTieredStorageListener {
         private final CountDownLatch latch = new CountDownLatch(1);
+        private final LocalTieredStorageCondition condition;
 
         @Override
         public void onStorageEvent(final LocalTieredStorageEvent event) {
-            if (event.matches(LocalTieredStorageCondition.this)) {
+            if (event.matches(condition)) {
                 latch.countDown();
             }
+        }
+
+        private boolean awaitEvent(final long timeout, final TimeUnit unit) throws InterruptedException {
+            return latch.await(timeout, unit);
+        }
+
+        private InternalListener(final LocalTieredStorageCondition condition) {
+            this.condition = requireNonNull(condition);
         }
     }
 
@@ -74,7 +101,7 @@ public final class LocalTieredStorageCondition {
         this.brokerId = id;
         this.topicPartition = requireNonNull(tp);
         this.failed = failed;
-        this.listener = new InternalListener();
+        this.listener = new InternalListener(this);
         this.next = null;
     }
 

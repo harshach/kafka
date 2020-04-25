@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package integration.kafka.tiered.storage
+package kafka.tiered.storage
 
 import java.util.Properties
 import java.util.concurrent.TimeUnit
@@ -206,7 +206,7 @@ final class ProduceAction(val offloadedSegmentSpecs: Map[TopicPartition, Seq[Off
     val producerRecords = spec.records
 
     assertThat(producerRecords, correspondTo(discoveredRecords, topicPartition))
-    assertEquals("Base offset of segment mismatch", spec.baseOffset, discoveredRecords(0).offset())
+    assertEquals("Base offset of segment mismatch", spec.baseOffset, discoveredRecords.head.offset())
   }
 }
 
@@ -258,7 +258,7 @@ final class ConsumeAction(val topicPartition: TopicPartition,
     val tieredStorageRecords = context.takeTieredStorageSnapshot()
         .getFilesets(topicPartition).asScala
         .sortWith((x, y) => x.getRecords.get(0).offset() <= y.getRecords.get(0).offset())
-        .map(_.getRecords.asScala).flatten
+        .flatMap(_.getRecords.asScala)
 
     //
     // Try to find a record from the second-tier storage which should be included in the
@@ -266,13 +266,13 @@ final class ConsumeAction(val topicPartition: TopicPartition,
     //
     val firstExpectedRecordOpt = tieredStorageRecords.find(_.offset() >= fetchOffset)
 
-    if (!firstExpectedRecordOpt.isDefined) {
+    if (firstExpectedRecordOpt.isEmpty) {
       //
       // If no records could be found in the second-tier storage or their offset are less
       // than the consumer fetch offset, no record would be consumed from that storage.
       //
       if (expectedFromSecondTierCount > 0) {
-        fail(s"Could not find record with offset $fetchOffset from the second-tier storage.")
+        fail(s"Could not find any record with offset >= $fetchOffset from the second-tier storage.")
       }
       return
     }
@@ -502,7 +502,7 @@ final class TieredStorageTestBuilder {
     if (!consumables.isEmpty) {
       consumables.foreach {
         case (topicPartition, spec) =>
-          val (sourceBroker, fetchCount) = fetchables.get(topicPartition).getOrElse((0, 0))
+          val (sourceBroker, fetchCount) = fetchables.getOrElse(topicPartition, (0, 0))
           val remoteFetchSpec = RemoteFetchSpec(sourceBroker, topicPartition, fetchCount)
           actions += new ConsumeAction(topicPartition, spec._1, spec._2, spec._3, remoteFetchSpec)
       }

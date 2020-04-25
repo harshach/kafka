@@ -19,7 +19,6 @@ package kafka.tiered.storage
 
 import java.util.Properties
 
-import integration.kafka.tiered.storage.{TieredStorageTestBuilder, TieredStorageTestContext}
 import kafka.api.IntegrationTestHarness
 import kafka.server.{KafkaConfig, KafkaServer}
 import kafka.utils.TestUtils
@@ -42,7 +41,7 @@ abstract class TieredStorageTestHarness extends IntegrationTestHarness {
     val overridingProps = new Properties()
 
     //
-    // Configure the tiered storage in Kafa. Set an interval of 1 second for the remote log manager background
+    // Configure the tiered storage in Kafka. Set an interval of 1 second for the remote log manager background
     // activity to ensure the tiered storage has enough room to be exercised within the lifetime of a test.
     //
     // The replication factor of the remote log metadata topic needs to be chosen so that in resiliency
@@ -123,6 +122,6 @@ object TieredStorageTestHarness {
   }
 
   def getLocalStorages(brokers: Seq[KafkaServer]): Seq[BrokerLocalStorage] = {
-    brokers.map(b => new BrokerLocalStorage(b.config.logDirs(0), storageWaitTimeoutSec))
+    brokers.map(b => new BrokerLocalStorage(b.config.logDirs.head, storageWaitTimeoutSec))
   }
 }

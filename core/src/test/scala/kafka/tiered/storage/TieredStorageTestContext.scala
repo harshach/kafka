@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package integration.kafka.tiered.storage
+package kafka.tiered.storage
 
 import java.time.Duration
 import java.util.Properties
@@ -24,7 +24,6 @@ import java.util.Properties
 import kafka.admin.AdminUtils.assignReplicasToBrokers
 import kafka.admin.BrokerMetadata
 import kafka.server.KafkaServer
-import kafka.tiered.storage.TieredStorageTestHarness
 import kafka.utils.TestUtils
 import kafka.zk.KafkaZkClient
 import org.apache.kafka.clients.CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG
@@ -77,7 +76,7 @@ final class TieredStorageTestContext(private val zookeeperClient: KafkaZkClient,
   }
 
   def createTopic(spec: TopicSpec): Unit = {
-    val metadata = brokers(0).metadataCache.getAliveBrokers.map(b => BrokerMetadata(b.id, b.rack))
+    val metadata = brokers.head.metadataCache.getAliveBrokers.map(b => BrokerMetadata(b.id, b.rack))
     val assignments = assignReplicasToBrokers(metadata, spec.partitionCount, spec.replicationFactor, 0, 0)
     TestUtils.createTopic(zookeeperClient, spec.topicName, assignments, brokers, spec.properties)
 
@@ -153,7 +152,7 @@ final class TieredStorageTestContext(private val zookeeperClient: KafkaZkClient,
   def topicSpec(topicName: String) = topicSpecs.synchronized { topicSpecs(topicName) }
 
   def takeTieredStorageSnapshot(): LocalTieredStorageSnapshot = {
-    LocalTieredStorageSnapshot.takeSnapshot(tieredStorages(0))
+    LocalTieredStorageSnapshot.takeSnapshot(tieredStorages.head)
   }
 
   def getTieredStorageHistory(brokerId: Int): LocalTieredStorageHistory = tieredStorages(brokerId).getHistory
