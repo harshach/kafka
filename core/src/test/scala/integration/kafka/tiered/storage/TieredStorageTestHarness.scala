@@ -39,11 +39,19 @@ abstract class TieredStorageTestHarness extends IntegrationTestHarness {
 
   override def generateConfigs: Seq[KafkaConfig] = {
     val overridingProps = new Properties()
+
+    //
+    // Configure the tiered storage in Kafa. Set an interval of 1 second for the remote log manager background
+    // activity to ensure the tiered storage has enough room to be exercised within the lifetime of a test.
+    //
+    // The replication factor of the remote log metadata topic needs to be chosen so that in resiliency
+    // tests, metadata can survive the loss of one replica for its topic-partitions.
+    //
     overridingProps.setProperty(KafkaConfig.RemoteLogStorageEnableProp, true.toString)
     overridingProps.setProperty(KafkaConfig.RemoteLogStorageManagerProp, classOf[LocalTieredStorage].getName)
     overridingProps.setProperty(KafkaConfig.RemoteLogMetadataManagerProp, classOf[RLMMWithTopicStorage].getName)
     overridingProps.setProperty(KafkaConfig.RemoteLogManagerTaskIntervalMsProp, 1000.toString)
-    overridingProps.setProperty(KafkaConfig.RemoteLogMetadataTopicReplicationFactorProp, 1.toString)
+    overridingProps.setProperty(KafkaConfig.RemoteLogMetadataTopicReplicationFactorProp, brokerCount.toString)
 
     //
     // This configuration ensures inactive log segments are deleted fast enough so that
@@ -53,9 +61,10 @@ abstract class TieredStorageTestHarness extends IntegrationTestHarness {
     //
     overridingProps.setProperty(KafkaConfig.LogCleanupIntervalMsProp, 1000.toString)
 
+    //
+    // This can be customized to read remote log segments from followers.
+    //
     readReplicaSelectorClass.foreach(c => overridingProps.put(KafkaConfig.ReplicaSelectorClassProp, c.getName))
-
-    overridingProps.setProperty(STORAGE_DIR_PROP, "tiered-storage-tests")
 
     createBrokerConfigs(numConfigs = brokerCount, zkConnect).map(KafkaConfig.fromProps(_, overridingProps))
   }
@@ -89,12 +98,18 @@ abstract class TieredStorageTestHarness extends IntegrationTestHarness {
 }
 
 object TieredStorageTestHarness {
+  /**
+    * InitialTaskDelayMs is set to 30 seconds for the delete-segment scheduler in Apache Kafka.
+    * Hence, we need to wait at least that amount of time before segments eligible for deletion
+    * gets physically removed.
+    */
+  private val storageWaitTimeoutSec = 35
 
   def getTieredStorages(brokers: Seq[KafkaServer]): Seq[LocalTieredStorage] = {
     brokers.map(_.remoteLogManager.get.storageManager().asInstanceOf[LocalTieredStorage])
   }
 
   def getLocalStorages(brokers: Seq[KafkaServer]): Seq[BrokerLocalStorage] = {
-    brokers.map(b => new BrokerLocalStorage(b.config.logDirs(0)))
+    brokers.map(b => new BrokerLocalStorage(b.config.logDirs(0), storageWaitTimeoutSec))
   }
 }

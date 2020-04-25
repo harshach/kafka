@@ -39,7 +39,6 @@ import scala.compat.java8.OptionConverters._
 @SuiteClasses(Array[Class[_]](
   classOf[OffloadAndConsumeFromLeaderTest],
   classOf[CanFetchFromTieredStorageAfterRecoveryOfLocalSegmentsTest]
-/*  classOf[OffloadAndConsumeFromFollowerTest] */
 ))
 @RunWith(classOf[Suite])
 object TieredStorageTests {

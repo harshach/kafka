@@ -24,15 +24,8 @@ import kafka.log.Log
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.utils.Time
 
-final class BrokerLocalStorage(private val storageDirname: String) {
+final class BrokerLocalStorage(private val storageDirname: String, private val storageWaitTimeoutSec: Int) {
   private val brokerStorageDirectory = new File(storageDirname)
-
-  /**
-    * InitialTaskDelayMs is set to 30 seconds for the delete-segment scheduler in Apache Kafka.
-    * Hence, we need to wait at least that amount of time before segments eligible for deletion
-    * gets physically removed.
-    */
-  private val storageWaitTimeoutSec = 35
   private val storagePollPeriodSec = 1
   private val time = Time.SYSTEM
 
@@ -42,16 +35,13 @@ final class BrokerLocalStorage(private val storageDirname: String) {
     *
     * This ensures segments can be retrieved from the local tiered storage when expected.
     */
-  def waitForEarliestOffset(topicPartition: TopicPartition,
-                            offset: Long,
-                            timeout: Long = storageWaitTimeoutSec,
-                            unit: TimeUnit = TimeUnit.SECONDS): Unit = {
+  def waitForEarliestOffset(topicPartition: TopicPartition, offset: Long): Unit = {
 
-    val timer = time.timer(unit.toMillis(timeout))
+    val timer = time.timer(TimeUnit.SECONDS.toMillis(storageWaitTimeoutSec))
     var earliestOffset = (0L, Seq[String]())
 
     while (timer.notExpired() && earliestOffset._1 < offset) {
-      timer.sleep(unit.toMillis(storagePollPeriodSec))
+      timer.sleep(TimeUnit.SECONDS.toMillis(storagePollPeriodSec))
       earliestOffset = getEarliestOffset(topicPartition)
     }
 

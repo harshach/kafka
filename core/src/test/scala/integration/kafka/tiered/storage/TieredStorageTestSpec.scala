@@ -147,6 +147,9 @@ final class ProduceAction(val offloadedSegmentSpecs: Map[TopicPartition, Seq[Off
       expectEvent(tieredStorages.asJava, OFFLOAD_SEGMENT, spec.sourceBrokerId, spec.topicPartition, false)
     }
 
+    //
+    // Records are produced here.
+    //
     context.produce(recordsToProduce.values.flatten)
 
     tieredStorageConditions.reduce(_ and _).waitUntilTrue(offloadWaitTimeoutSec, TimeUnit.SECONDS)
@@ -176,7 +179,8 @@ final class ProduceAction(val offloadedSegmentSpecs: Map[TopicPartition, Seq[Off
     // Take a physical snapshot of the second-tier storage, and compare the records found with
     // those of the expected log segments.
     //
-    // TODO: Handle incremental population of the second-tier storage. Currently all of records found are considered.
+    // TODO: Handle incremental population of the second-tier storage.
+    //       Currently all of records found are considered.
     //
     val snapshot = context.takeTieredStorageSnapshot()
 
@@ -239,6 +243,9 @@ final class ConsumeAction(val topicPartition: TopicPartition,
     val history = context.getTieredStorageHistory(remoteFetchSpec.sourceBrokerId)
     val latestEventSoFar = history.latestEvent(FETCH_SEGMENT, topicPartition).asScala
 
+    //
+    // Records are consumed here.
+    //
     val consumedRecords = context.consume(topicPartition, expectedTotalCount, fetchOffset)
 
     //
@@ -324,6 +331,7 @@ final class ExpectLeaderAction(val topicPartition: TopicPartition, val replicaId
       context.admin().electLeaders(ElectionType.PREFERRED, Set(topicPartition).asJava)
     }
 
+    // TODO Provide a valid error message.
     TestUtils.assertLeader(context.admin(), topicPartition, replicaId)
   }
 }
