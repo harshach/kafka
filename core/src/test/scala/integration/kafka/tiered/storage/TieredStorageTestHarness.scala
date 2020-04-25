@@ -22,6 +22,7 @@ import java.util.Properties
 import integration.kafka.tiered.storage.{TieredStorageTestBuilder, TieredStorageTestContext}
 import kafka.api.IntegrationTestHarness
 import kafka.server.{KafkaConfig, KafkaServer}
+import kafka.utils.TestUtils
 import kafka.utils.TestUtils.createBrokerConfigs
 import org.apache.kafka.common.log.remote.metadata.storage.RLMMWithTopicStorage
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorage
@@ -47,6 +48,9 @@ abstract class TieredStorageTestHarness extends IntegrationTestHarness {
     // The replication factor of the remote log metadata topic needs to be chosen so that in resiliency
     // tests, metadata can survive the loss of one replica for its topic-partitions.
     //
+    // The second-tier storage system is mocked via the LocalTieredStorage instance which persists transferred
+    // data files on the local file system.
+    //
     overridingProps.setProperty(KafkaConfig.RemoteLogStorageEnableProp, true.toString)
     overridingProps.setProperty(KafkaConfig.RemoteLogStorageManagerProp, classOf[LocalTieredStorage].getName)
     overridingProps.setProperty(KafkaConfig.RemoteLogMetadataManagerProp, classOf[RLMMWithTopicStorage].getName)
@@ -65,6 +69,15 @@ abstract class TieredStorageTestHarness extends IntegrationTestHarness {
     // This can be customized to read remote log segments from followers.
     //
     readReplicaSelectorClass.foreach(c => overridingProps.put(KafkaConfig.ReplicaSelectorClassProp, c.getName))
+
+    //
+    // The directory of the second-tier storage needs to be constant across all instances of storage managers
+    // in every broker and throughout the test. Indeed, as brokers are restarted during the test.
+    //
+    // You can override this property with a fixed path of your choice if you wish to use a non-temporary
+    // directory to access its content after a test terminated.
+    //
+    overridingProps.setProperty(STORAGE_DIR_PROP, TestUtils.tempDir().getAbsolutePath)
 
     createBrokerConfigs(numConfigs = brokerCount, zkConnect).map(KafkaConfig.fromProps(_, overridingProps))
   }

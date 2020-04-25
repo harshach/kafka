@@ -102,9 +102,6 @@ final class RecordsKeyValueMatcher[R1, R2, K, V](private val expectedRecords: It
       } else true
     }
 
-    //
-    // The actual comparison happens here.
-    //
     val keq = compare(expectedRecord.key(), actualRecord.key(), keySerde.deserializer(), "Record key")
     val veq = compare(expectedRecord.value(), actualRecord.value(), valueSerde.deserializer(), "Record value")
 
