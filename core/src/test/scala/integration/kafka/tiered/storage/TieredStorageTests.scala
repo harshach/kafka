@@ -1,3 +1,21 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package integration.kafka.tiered.storage
 
 import java.util.Optional
@@ -32,7 +50,7 @@ object TieredStorageTests {
     *    Elementary offloads and fetches from tiered storage.
     */
   final class OffloadAndConsumeFromLeaderTest extends TieredStorageTestHarness {
-    private val (broker, topicA, topicB, partition) = (0, "topicA", "topicB", 0)
+    private val (broker, topicA, topicB, p0) = (0, "topicA", "topicB", 0)
 
     override protected def brokerCount: Int = 1
 
@@ -49,7 +67,8 @@ object TieredStorageTests {
          *       State of the storages after production of the records and propagation of the log
          *       segment lifecycles to peer subsystems (log cleaner, remote log manager).
          *
-         *           First-tier storage                Second-tier storage
+         *         - First-tier storage -            - Second-tier storage -
+         *           Log tA-p0                         Log tA-p0
          *          *-------------------*             *-------------------*
          *          | base offset = 2   |             |  base offset = 0  |
          *          | (k3, v3)          |             |  (k1, v1)         |
@@ -60,9 +79,9 @@ object TieredStorageTests {
          *                                            *-------------------*
          */
         .createTopic(topicA, partitionsCount = 1, replicationFactor = 1, segmentSize = 1)
-        .produce(topicA, partition, ("k1", "v1"), ("k2", "v2"), ("k3", "v3"))
-        .expectSegmentToBeOffloaded(broker, topicA, partition, baseOffset = 0, segmentSize = 1)
-        .expectSegmentToBeOffloaded(broker, topicA, partition, baseOffset = 1, segmentSize = 1)
+        .produce(topicA, p0, ("k1", "v1"), ("k2", "v2"), ("k3", "v3"))
+        .expectSegmentToBeOffloaded(broker, topicA, p0, baseOffset = 0, segmentSize = 1)
+        .expectSegmentToBeOffloaded(broker, topicA, p0, baseOffset = 1, segmentSize = 1)
 
         /*
          * (A.2) Similar scenario as above, but with segments of two records.
@@ -72,7 +91,8 @@ object TieredStorageTests {
          *       State of the storages after production of the records and propagation of the log
          *       segment lifecycles to peer subsystems (log cleaner, remote log manager).
          *
-         *           First-tier storage                Second-tier storage
+         *         - First-tier storage -            - Second-tier storage -
+         *           Log tB-p0                         Log tB-p0
          *          *-------------------*             *-------------------*
          *          | base offset = 3   |             |  base offset = 0  |
          *          | (k3, v3)          |             |  (k1, v1)         |
@@ -81,7 +101,7 @@ object TieredStorageTests {
          */
         .createTopic(topicB, partitionsCount = 1, replicationFactor = 1, segmentSize = 2)
         .produce(topicB, 0, ("k1", "v1"), ("k2", "v2"), ("k3", "v3"))
-        .expectSegmentToBeOffloaded(broker, topicB, partition, baseOffset = 0, segmentSize = 2)
+        .expectSegmentToBeOffloaded(broker, topicB, p0, baseOffset = 0, segmentSize = 2)
 
         /*
          * (A.3) Stops and restarts the broker. The purpose of this test is to a) exercise consumption
@@ -96,10 +116,10 @@ object TieredStorageTests {
          *         previous sub-test-case.
          */
         .bounce(brokerId = 0)
-        .consume(topicA, partition, fetchOffset = 1, expectedTotalRecord = 2, expectedRecordsFromTieredStorage = 1)
-        .consume(topicB, partition, fetchOffset = 1, expectedTotalRecord = 2, expectedRecordsFromTieredStorage = 1)
-        .expectFetchFromTieredStorage(broker, topicA, partition, recordCount = 1)
-        .expectFetchFromTieredStorage(broker, topicB, partition, recordCount = 1)
+        .consume(topicA, p0, fetchOffset = 1, expectedTotalRecord = 2, expectedRecordsFromSecondTier = 1)
+        .consume(topicB, p0, fetchOffset = 1, expectedTotalRecord = 2, expectedRecordsFromSecondTier = 1)
+        .expectFetchFromTieredStorage(broker, topicA, p0, recordCount = 1)
+        .expectFetchFromTieredStorage(broker, topicB, p0, recordCount = 1)
     }
   }
 
@@ -120,7 +140,7 @@ object TieredStorageTests {
     *    - B0 restores the availability both active and remote log segments upon restart.
     */
   final class CanFetchFromTieredStorageAfterRecoveryOfLocalSegmentsTest extends TieredStorageTestHarness {
-    private val (broker0, broker1, topic, partition) = (0, 1, "topicA", 0)
+    private val (broker0, broker1, topic, p0) = (0, 1, "topicA", 0)
 
     /* Cluster of two brokers */
     override protected def brokerCount: Int = 2
@@ -129,16 +149,16 @@ object TieredStorageTests {
       builder
         /* (A.1) */
         .createTopic(topic, partitionsCount = 1, replicationFactor = 2, segmentSize = 1)
-        .produce(topic, partition, ("k1", "v1"), ("k2", "v2"), ("k3", "v3"))
-        .expectSegmentToBeOffloaded(broker0, topic, partition, baseOffset = 0, segmentSize = 1)
-        .expectSegmentToBeOffloaded(broker0, topic, partition, baseOffset = 1, segmentSize = 1)
+        .produce(topic, p0, ("k1", "v1"), ("k2", "v2"), ("k3", "v3"))
+        .expectSegmentToBeOffloaded(broker0, topic, p0, baseOffset = 0, segmentSize = 1)
+        .expectSegmentToBeOffloaded(broker0, topic, p0, baseOffset = 1, segmentSize = 1)
 
         /* (B.1) Stop B0 and read remote log segments from the leader replica which moved to B1. */
-        .expectLeader(topic, partition, broker0)
+        .expectLeader(topic, p0, broker0)
         .stop(broker0)
-        .expectLeader(topic, partition, broker1)
-        .consume(topic, partition, fetchOffset = 0, expectedTotalRecord = 3, expectedRecordsFromTieredStorage = 2)
-        .expectFetchFromTieredStorage(broker1, topic, partition, recordCount = 2)
+        .expectLeader(topic, p0, broker1)
+        .consume(topic, p0, fetchOffset = 0, expectedTotalRecord = 3, expectedRecordsFromSecondTier = 2)
+        .expectFetchFromTieredStorage(broker1, topic, p0, recordCount = 2)
 
         /*
          * (B.2) Restore previous leader with an empty storage. The active segment is expected to be
@@ -148,13 +168,23 @@ object TieredStorageTests {
          */
         .eraseBrokerStorage(broker0)
         .start(broker0)
-        .expectLeader(topic, partition, broker0, electLeader = true)
-        .consume(topic, partition, fetchOffset = 0, expectedTotalRecord = 3, expectedRecordsFromTieredStorage = 2)
-        .expectFetchFromTieredStorage(broker0, topic, partition, recordCount = 2)
+        .expectLeader(topic, p0, broker0, electLeader = true)
+        //
+        // TODO There is a race condition here. If consumption happens "too soon" and the remote log metadata
+        //      manager has not been given enough time to update the remote log metadata, only the
+        //      segments from the first-tier storage will be found in B0. We need to mechanism to deterministically
+        //      initiate consumption once we know metadata are up-to-date in the restarted broker. Alternatively,
+        //      we can evaluate if a stronger consistency is wished on broker restart such that a log
+        //      is not available for consumption until the metadata for its remote segments have been processed.
+        //
+        .consume(topic, p0, fetchOffset = 0, expectedTotalRecord = 3, expectedRecordsFromSecondTier = 2)
+        .expectFetchFromTieredStorage(broker0, topic, p0, recordCount = 2)
     }
   }
 
+  //
   // TODO: fetch from follower not implemented.
+  //
   final class OffloadAndConsumeFromFollowerTest extends TieredStorageTestHarness {
 
     override protected def brokerCount: Int = 2
@@ -170,14 +200,14 @@ object TieredStorageTests {
         .produce("topicA", 0, ("k1", "v1"), ("k2", "v2"), ("k3", "v3"))
         .expectSegmentToBeOffloaded(fromBroker = 0, "topicA", partition = 0, baseOffset = 0, segmentSize = 1)
         .expectSegmentToBeOffloaded(fromBroker = 0, "topicA", partition = 0, baseOffset = 1, segmentSize = 1)
-        .consume("topicA", partition = 0, fetchOffset = 1, expectedTotalRecord = 2, expectedRecordsFromTieredStorage = 1)
+        .consume("topicA", partition = 0, fetchOffset = 1, expectedTotalRecord = 2, expectedRecordsFromSecondTier = 1)
 
         .stop(brokerId = 1)
         .eraseBrokerStorage(brokerId = 1)
         .start(brokerId = 1)
         .expectLeader("topicA", partition = 0, brokerId = 0)
         .expectInIsr("topicA", partition = 0, brokerId = 1)
-        .consume("topicA", partition = 0, fetchOffset = 0, expectedTotalRecord = 2, expectedRecordsFromTieredStorage = 1)
+        .consume("topicA", partition = 0, fetchOffset = 0, expectedTotalRecord = 2, expectedRecordsFromSecondTier = 1)
         .expectFetchFromTieredStorage(fromBroker = 1, "topicA", partition = 0, recordCount = 2)
     }
   }

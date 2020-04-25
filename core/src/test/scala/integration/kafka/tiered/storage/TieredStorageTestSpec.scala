@@ -1,3 +1,21 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package integration.kafka.tiered.storage
 
 import java.util.Properties
@@ -12,28 +30,59 @@ import org.apache.kafka.common.log.remote.storage.LocalTieredStorageEvent.EventT
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset
 import org.apache.kafka.common.serialization.{Serde, Serdes}
 import org.hamcrest.MatcherAssert.assertThat
-import org.junit.Assert.{assertEquals, assertFalse, assertTrue}
+import org.junit.Assert.{assertEquals, assertFalse, fail}
 import unit.kafka.utils.RecordsMatcher.correspondTo
 
 import scala.jdk.CollectionConverters._
 import scala.compat.java8.OptionConverters._
 import scala.collection.{Seq, mutable}
 
+/**
+  * Specifies a remote log segment expected to be found in a second-tier storage.
+  *
+  * @param sourceBrokerId The broker which offloaded (uploaded) the segment to the second-tier storage.
+  * @param topicPartition The topic-partition which the remote log segment belongs to.
+  * @param baseOffset The base offset of the remote log segment.
+  * @param records The records *expected* in the remote log segment.
+  */
 final case class OffloadedSegmentSpec(val sourceBrokerId: Int,
                                       val topicPartition: TopicPartition,
                                       val baseOffset: Int,
                                       val records: Seq[ProducerRecord[String, String]])
 
+/**
+  * Specifies a topic-partition with attributes customized for the purpose of tiered-storage tests.
+  *
+  * @param topicName The name of the topic.
+  * @param partitionCount The number of partitions for the topic.
+  * @param replicationFactor The replication factor of the topic.
+  * @param segmentSize The size of segment for the topic, in number of records.
+  *                    A fixed, pre-determined size for the segment is important to enforce to ease exercising
+  *                    tiered-storages and reason on expected state in Kafka and tiered-storages.
+  * @param properties Configuration of the topic customized for the purpose of tiered-storage tests.
+  */
 final case class TopicSpec(val topicName: String,
                            val partitionCount: Int,
                            val replicationFactor: Int,
                            val segmentSize: Int,
                            val properties: Properties = new Properties)
 
+/**
+  * Specifies a fetch (download) event from a second-tier storage. This is used to ensure the
+  * interactions between Kafka and the second-tier storage match expectations.
+  *
+  * @param sourceBrokerId The broker which fetched (a) remote log segment(s) from the second-tier storage.
+  * @param topicPartition The topic-partition which segment(s) were fetched.
+  * @param count The number of remote log segment(s) fetched.
+  */
+// TODO Add more details on the specifications to perform more robust tests.
 final case class RemoteFetchSpec(val sourceBrokerId: Int,
                                  val topicPartition: TopicPartition,
                                  val count: Int)
 
+/**
+  * An action, or step, taken during a test.
+  */
 trait TieredStorageTestAction {
 
   def execute(context: TieredStorageTestContext): Unit
@@ -61,8 +110,8 @@ final class CreateTopicAction(val spec: TopicSpec) extends TieredStorageTestActi
     }
 
     //
-    // To verify records physically absent from Kafka's storage can be consumed via the tiered storage, we
-    // want to delete log segments as soon as possible. When the tiered storage is active, an inactive log
+    // To verify records physically absent from Kafka's storage can be consumed via the second tier storage, we
+    // want to delete log segments as soon as possible. When tiered storage is active, an inactive log
     // segment is not eligible for deletion until it has been offloaded, which guarantees all segments
     // should be offloaded before deletion, and their consumption is possible thereafter.
     //
@@ -72,11 +121,22 @@ final class CreateTopicAction(val spec: TopicSpec) extends TieredStorageTestActi
   }
 }
 
+/**
+  * Produce records and verify resulting states in the first and second-tier storage.
+  *
+  * @param offloadedSegmentSpecs The segments expected to be offloaded to the second-tier storage.
+  * @param recordsToProduce The records to produce per topic-partition.
+  */
 final class ProduceAction(val offloadedSegmentSpecs: Map[TopicPartition, Seq[OffloadedSegmentSpec]],
                           val recordsToProduce: Map[TopicPartition, Seq[ProducerRecord[String, String]]])
   extends TieredStorageTestAction {
 
+  /**
+    * How much time to wait for all remote log segments of a topic-partition to be offloaded
+    * to the second-tier storage.
+    */
   private val offloadWaitTimeoutSec = 20
+
   private implicit val serde: Serde[String] = Serdes.String()
 
   override def execute(context: TieredStorageTestContext): Unit = {
@@ -91,6 +151,16 @@ final class ProduceAction(val offloadedSegmentSpecs: Map[TopicPartition, Seq[Off
 
     tieredStorageConditions.reduce(_ and _).waitUntilTrue(offloadWaitTimeoutSec, TimeUnit.SECONDS)
 
+    //
+    // At this stage, records were produced and the expected remote log segments found in the second-tier storage.
+    // Further steps are:
+    //
+    // 1) verify the local (first-tier) storages contain only the expected log segments - that is to say,
+    //    in the special case of these integration tests, only the active segment.
+    // 2) consume the records and verify they match the produced records.
+    //
+    // TODO: Handle consume from any offset.
+    //
     recordsToProduce.foreach {
       case (topicPartition, producedRecords) =>
         val topicSpec = context.topicSpec(topicPartition.topic())
@@ -102,6 +172,12 @@ final class ProduceAction(val offloadedSegmentSpecs: Map[TopicPartition, Seq[Off
         assertThat(consumedRecords, correspondTo(producedRecords, topicPartition))
     }
 
+    //
+    // Take a physical snapshot of the second-tier storage, and compare the records found with
+    // those of the expected log segments.
+    //
+    // TODO: Handle incremental population of the second-tier storage. Currently all of records found are considered.
+    //
     val snapshot = context.takeTieredStorageSnapshot()
 
     offloadedSegmentSpecs.foreach {
@@ -130,53 +206,93 @@ final class ProduceAction(val offloadedSegmentSpecs: Map[TopicPartition, Seq[Off
   }
 }
 
+/**
+  * Consume records for the topic-partition and verify they match the formulated expectation.
+  *
+  * @param topicPartition The topic-partition which to consume records from.
+  * @param fetchOffset The first offset to consume from.
+  * @param expectedTotalCount The number of records expected to be consumed.
+  * @param expectedFromSecondTierCount The number of records expected to be retrieved from the second-tier storage.
+  * @param remoteFetchSpec Specifies the interactions required with the second-tier storage (if any)
+  *                        to fulfill the consumer fetch request.
+  */
 final class ConsumeAction(val topicPartition: TopicPartition,
                           val fetchOffset: Long,
                           val expectedTotalCount: Int,
-                          val expectedFromTieredStorageCount: Int,
+                          val expectedFromSecondTierCount: Int,
                           val remoteFetchSpec: RemoteFetchSpec) extends TieredStorageTestAction {
 
   private implicit val serde: Serde[String] = Serdes.String()
 
   override def execute(context: TieredStorageTestContext): Unit = {
+    //
+    // Retrieve the history (which stores the chronological sequence of interactions with the second-tier
+    // storage) for the expected broker. Note that while the second-tier storage is unique, each broker
+    // maintains a local instance of LocalTieredStorage, which is the server-side plug-in interface which
+    // allows Kafka to interact with that storage. These instances record the interactions (or events)
+    // between the broker which they belong to and the second-tier storage.
+    //
+    // The latest event at the time of invocation for the interaction of type "FETCH_SEGMENT" between the
+    // given broker and the second-tier storage is retrieved. It can be empty if an interaction of this
+    // type has yet to happen.
+    //
     val history = context.getTieredStorageHistory(remoteFetchSpec.sourceBrokerId)
     val latestEventSoFar = history.latestEvent(FETCH_SEGMENT, topicPartition).asScala
 
     val consumedRecords = context.consume(topicPartition, expectedTotalCount, fetchOffset)
 
-    if (expectedFromTieredStorageCount == 0) {
-      return
-    }
-
-    val snapshot = context.takeTieredStorageSnapshot()
-
-    val tieredStorageRecords = snapshot
+    //
+    // (A) Comparison of records consumed with records in the second-tier storage.
+    //
+    // Reads all records physically found in the second-tier storage ∂for the given topic-partition.
+    // The resulting sequence is sorted by records offset, as there is no guarantee on ordering from
+    // the LocalTieredStorageSnapshot.
+    //
+    val tieredStorageRecords = context.takeTieredStorageSnapshot()
         .getFilesets(topicPartition).asScala
         .sortWith((x, y) => x.getRecords.get(0).offset() <= y.getRecords.get(0).offset())
         .map(_.getRecords.asScala).flatten
 
-    val firstExpectedRecordOpt = tieredStorageRecords.find(_.offset() == fetchOffset)
-    assertTrue(s"Could not find record with offset $fetchOffset", firstExpectedRecordOpt.isDefined)
+    //
+    // Try to find a record from the second-tier storage which should be included in the
+    // sequence of records consumed.
+    //
+    val firstExpectedRecordOpt = tieredStorageRecords.find(_.offset() >= fetchOffset)
+
+    if (!firstExpectedRecordOpt.isDefined) {
+      //
+      // If no records could be found in the second-tier storage or their offset are less
+      // than the consumer fetch offset, no record would be consumed from that storage.
+      //
+      if (expectedFromSecondTierCount > 0) {
+        fail(s"Could not find record with offset $fetchOffset from the second-tier storage.")
+      }
+      return
+    }
 
     val indexOfFetchOffsetInTieredStorage = tieredStorageRecords.indexOf(firstExpectedRecordOpt.get)
     val recordsCountFromFirstIndex = tieredStorageRecords.size - indexOfFetchOffsetInTieredStorage
 
     assertFalse(
       s"Not enough records found in tiered storage from offset $fetchOffset for $topicPartition. " +
-      s"Expected: $expectedFromTieredStorageCount, Was $recordsCountFromFirstIndex",
-      expectedFromTieredStorageCount > recordsCountFromFirstIndex)
+      s"Expected: $expectedFromSecondTierCount, Was $recordsCountFromFirstIndex",
+      expectedFromSecondTierCount > recordsCountFromFirstIndex)
 
     assertFalse(
       s"Too many records found in tiered storage from offset $fetchOffset for $topicPartition. " +
-      s"Expected: $expectedFromTieredStorageCount, Was $recordsCountFromFirstIndex",
-      expectedFromTieredStorageCount < recordsCountFromFirstIndex
+      s"Expected: $expectedFromSecondTierCount, Was $recordsCountFromFirstIndex",
+      expectedFromSecondTierCount < recordsCountFromFirstIndex
     )
 
     val storedRecords = tieredStorageRecords.splitAt(indexOfFetchOffsetInTieredStorage)._2
-    val readRecords = consumedRecords.take(expectedFromTieredStorageCount)
+    val readRecords = consumedRecords.take(expectedFromSecondTierCount)
 
     assertThat(storedRecords, correspondTo(readRecords, topicPartition))
 
+    //
+    // (B) Assessment of the interactions between the source broker and the second-tier storage.
+    //     Events which occurred before the consumption of records are discarded.
+    //
     val events = history.getEvents(FETCH_SEGMENT, topicPartition).asScala
     val eventsInScope = latestEventSoFar.map(e => events.filter(_.isAfter(e))).getOrElse(events)
 
@@ -278,18 +394,18 @@ final class TieredStorageTestBuilder {
               partition: Int,
               fetchOffset: Long,
               expectedTotalRecord: Int,
-              expectedRecordsFromTieredStorage: Int): this.type = {
+              expectedRecordsFromSecondTier: Int): this.type = {
 
     assert(partition >= 0, "Partition must be >= 0")
     assert(fetchOffset >= 0, "Fecth offset must be >=0")
     assert(expectedTotalRecord >= 1, "Must read at least one record")
-    assert(expectedRecordsFromTieredStorage >= 0, "Expected read cannot be < 0")
-    assert(expectedRecordsFromTieredStorage <= expectedTotalRecord, "Cannot fetch more records than consumed")
+    assert(expectedRecordsFromSecondTier >= 0, "Expected read cannot be < 0")
+    assert(expectedRecordsFromSecondTier <= expectedTotalRecord, "Cannot fetch more records than consumed")
 
     val topicPartition = new TopicPartition(topic, partition)
 
     assert(!consumables.contains(topicPartition), s"Consume already in progress for $topicPartition")
-    consumables += topicPartition -> (fetchOffset, expectedTotalRecord, expectedRecordsFromTieredStorage)
+    consumables += topicPartition -> (fetchOffset, expectedTotalRecord, expectedRecordsFromSecondTier)
     this
   }
 

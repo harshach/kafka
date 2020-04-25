@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package kafka.tiered.storage
 
 import java.util.Properties
@@ -44,12 +45,17 @@ abstract class TieredStorageTestHarness extends IntegrationTestHarness {
     overridingProps.setProperty(KafkaConfig.RemoteLogManagerTaskIntervalMsProp, 1000.toString)
     overridingProps.setProperty(KafkaConfig.RemoteLogMetadataTopicReplicationFactorProp, 1.toString)
 
+    //
+    // This configuration ensures inactive log segments are deleted fast enough so that
+    // the integration tests can confirm a given log segment is present only in the second-tier storage.
+    // Note that this does not impact the eligibility of a log segment to be offloaded to the
+    // second-tier storage.
+    //
     overridingProps.setProperty(KafkaConfig.LogCleanupIntervalMsProp, 1000.toString)
 
     readReplicaSelectorClass.foreach(c => overridingProps.put(KafkaConfig.ReplicaSelectorClassProp, c.getName))
 
     overridingProps.setProperty(STORAGE_DIR_PROP, "tiered-storage-tests")
-    overridingProps.setProperty(DELETE_ON_CLOSE_PROP, "true")
 
     createBrokerConfigs(numConfigs = brokerCount, zkConnect).map(KafkaConfig.fromProps(_, overridingProps))
   }
