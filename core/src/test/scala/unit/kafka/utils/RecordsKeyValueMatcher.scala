@@ -31,8 +31,7 @@ import org.hamcrest.{Description, TypeSafeDiagnosingMatcher}
   * Heterogeneous matcher between alternative types of records:
   * [[ProducerRecord]], [[ConsumerRecord]] or [[Record]].
   *
-  * Note that it is conceptually incorrect to try to match records at different stage of processing
-  * (produced, committed, consumed) because the essence of such records is different.
+  * It is conceptually incorrect to try to match records of different natures.
   * Only a committed [[Record]] is univoque, whereas a [[ProducerRecord]] or [[ConsumerRecord]] is
   * a physical representation of a record-to-be or viewed record.
   *

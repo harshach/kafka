@@ -89,7 +89,7 @@ object TieredStorageTests {
          *         - First-tier storage -            - Second-tier storage -
          *           Log tB-p0                         Log tB-p0
          *          *-------------------*             *-------------------*
-         *          | base offset = 3   |             |  base offset = 0  |
+         *          | base offset = 2   |             |  base offset = 0  |
          *          | (k3, v3)          |             |  (k1, v1)         |
          *          *-------------------*             |  (k2, v2)         |
          *                                            *-------------------*
