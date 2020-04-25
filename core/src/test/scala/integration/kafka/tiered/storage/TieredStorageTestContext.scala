@@ -112,9 +112,7 @@ final class TieredStorageTestContext(private val zookeeperClient: KafkaZkClient,
   def bounce(brokerId: Int): Unit = {
     val broker = brokers(brokerId)
 
-    producer.close(Duration.ofSeconds(5))
-    consumer.close(Duration.ofSeconds(5))
-    adminClient.close()
+    closeClients()
 
     broker.shutdown()
     broker.awaitShutdown()
@@ -125,16 +123,19 @@ final class TieredStorageTestContext(private val zookeeperClient: KafkaZkClient,
 
   def stop(brokerId: Int): Unit = {
     val broker = brokers(brokerId)
+
+    closeClients()
+
     broker.shutdown()
     broker.awaitShutdown()
+
+    initContext()
   }
 
   def start(brokerId: Int): Unit = {
     val broker = brokers(brokerId)
 
-    producer.close(Duration.ofSeconds(5))
-    consumer.close(Duration.ofSeconds(5))
-    adminClient.close()
+    closeClients()
 
     broker.startup()
 
@@ -162,6 +163,12 @@ final class TieredStorageTestContext(private val zookeeperClient: KafkaZkClient,
   def close(): Unit = {
     getTieredStorages.find(_ => true).foreach(_.clear())
     Utils.closeAll(producer, consumer)
+    adminClient.close()
+  }
+
+  private def closeClients(): Unit = {
+    producer.close(Duration.ofSeconds(5))
+    consumer.close(Duration.ofSeconds(5))
     adminClient.close()
   }
 

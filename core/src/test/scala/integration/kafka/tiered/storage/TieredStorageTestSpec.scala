@@ -244,15 +244,19 @@ final class TieredStorageTestBuilder {
     this
   }
 
-  def produce(topic: String, partition: Int, key: String, value: String): this.type = {
+  def produce(topic: String, partition: Int, keyValues: (String, String)*): this.type = {
     assert(partition >= 0, "Partition must be >= 0")
     val topicPartition = new TopicPartition(topic, partition)
 
-    if (!producables.contains(topicPartition)) {
-      producables += (topicPartition -> mutable.Buffer())
+    keyValues.foreach {
+      case (key, value) =>
+        if (!producables.contains(topicPartition)) {
+          producables += (topicPartition -> mutable.Buffer())
+        }
+
+        producables(topicPartition) += new ProducerRecord[String, String](topic, partition, key, value)
     }
 
-    producables(topicPartition) += new ProducerRecord[String, String](topic, partition, key, value)
     this
   }
 
@@ -273,19 +277,19 @@ final class TieredStorageTestBuilder {
   def consume(topic: String,
               partition: Int,
               fetchOffset: Long,
-              expectedTotal: Int,
-              expectedFromTieredStorage: Int): this.type = {
+              expectedTotalRecord: Int,
+              expectedRecordsFromTieredStorage: Int): this.type = {
 
     assert(partition >= 0, "Partition must be >= 0")
     assert(fetchOffset >= 0, "Fecth offset must be >=0")
-    assert(expectedTotal >= 1, "Must read at least one record")
-    assert(expectedFromTieredStorage >= 0, "Expected read cannot be < 0")
-    assert(expectedFromTieredStorage <= expectedTotal, "Cannot fetch more records than consumed")
+    assert(expectedTotalRecord >= 1, "Must read at least one record")
+    assert(expectedRecordsFromTieredStorage >= 0, "Expected read cannot be < 0")
+    assert(expectedRecordsFromTieredStorage <= expectedTotalRecord, "Cannot fetch more records than consumed")
 
     val topicPartition = new TopicPartition(topic, partition)
 
     assert(!consumables.contains(topicPartition), s"Consume already in progress for $topicPartition")
-    consumables += topicPartition -> (fetchOffset, expectedTotal, expectedFromTieredStorage)
+    consumables += topicPartition -> (fetchOffset, expectedTotalRecord, expectedRecordsFromTieredStorage)
     this
   }
 
@@ -299,14 +303,14 @@ final class TieredStorageTestBuilder {
     this
   }
 
-  def expectFetchFromTieredStorage(fromBroker: Int, topic: String, partition: Int, count: Int): this.type = {
+  def expectFetchFromTieredStorage(fromBroker: Int, topic: String, partition: Int, recordCount: Int): this.type = {
     assert(partition >= 0, "Partition must be >= 0")
-    assert(count >= 0, "Expected fetch count from tiered storage must be >= 0")
+    assert(recordCount >= 0, "Expected fetch count from tiered storage must be >= 0")
 
     val topicPartition = new TopicPartition(topic, partition)
 
     assert(!fetchables.contains(topicPartition), s"Consume already in progress for $topicPartition")
-    fetchables += topicPartition -> (fromBroker, count)
+    fetchables += topicPartition -> (fromBroker, recordCount)
     this
   }
 
@@ -325,6 +329,8 @@ final class TieredStorageTestBuilder {
   }
 
   def start(brokerId: Int): this.type = {
+    maybeCreateProduceAction()
+    maybeCreateConsumeActions()
     actions += new StartBrokerAction(brokerId)
     this
   }
