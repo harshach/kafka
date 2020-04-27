@@ -36,7 +36,7 @@ import static java.util.Objects.requireNonNull;
  * the broker from which the interaction originates from, the topic-partition the interaction relates
  * to, and whether the interaction results in a successful or failed outcome.
  *
- * The current model for interactions with the {@link LocalTieredStorage} is materialized by
+ * The current model for interactions with the {@link LocalTieredStorage} is materialized by a
  * {@link LocalTieredStorageEvent}.
  *
  * Conditions can be chained to formulate logical conjunctions via the use of the method

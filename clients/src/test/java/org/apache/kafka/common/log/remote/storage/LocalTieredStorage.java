@@ -112,7 +112,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     private static final String ROOT_STORAGES_DIR_NAME = "kafka-tiered-storage";
 
     private volatile File storageDirectory;
-    private volatile boolean deleteOnClose = true;
+    private volatile boolean deleteOnClose = false;
     private volatile boolean deleteEnabled = true;
     private volatile Transferer transferer = (from, to) -> Files.copy(from.toPath(), to.toPath());
     private volatile int brokerId;
@@ -363,6 +363,9 @@ public final class LocalTieredStorage implements RemoteStorageManager {
 
     @Override
     public void close() {
+        if (deleteOnClose) {
+            clear();
+        }
     }
 
     public void clear() {
