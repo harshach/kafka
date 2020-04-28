@@ -48,7 +48,7 @@ final class TieredStorageTestContext(private val zookeeperClient: KafkaZkClient,
                                      private val consumerConfig: Properties,
                                      private val securityProtocol: SecurityProtocol) {
 
-  private val (ser, de) = (Serdes.String().serializer(), Serdes.String().deserializer())
+  private[storage] val (ser, de) = (Serdes.String().serializer(), Serdes.String().deserializer())
   private val topicSpecs = mutable.Map[String, TopicSpec]()
 
   private val testReport = new TieredStorageTestReport(this)
@@ -189,7 +189,6 @@ final class TieredStorageTestContext(private val zookeeperClient: KafkaZkClient,
   }
 
   def close(): Unit = {
-    getTieredStorages.find(_ => true).foreach(_.clear())
     Utils.closeAll(producer, consumer)
     adminClient.close()
   }
@@ -230,7 +229,8 @@ final class TieredStorageTestReport(private val context: TieredStorageTestContex
       }
 
     if (!failedActions.isEmpty) {
-      output.println(s"Content of local tiered storage:${System.lineSeparator()}${context.takeTieredStorageSnapshot()}")
+      val lts = DumpLocalTieredStorage.dump(context.getTieredStorages.head, context.de, context.de)
+      output.println(s"Content of local tiered storage:\n\n$lts")
     }
   }
 }

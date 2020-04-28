@@ -78,6 +78,8 @@ abstract class TieredStorageTestHarness extends IntegrationTestHarness {
     //
     overridingProps.setProperty(STORAGE_DIR_PROP, TestUtils.tempDir().getAbsolutePath)
 
+    overridingProps.setProperty(KafkaConfig.UncleanLeaderElectionEnableProp, true.toString)
+
     createBrokerConfigs(numConfigs = brokerCount, zkConnect).map(KafkaConfig.fromProps(_, overridingProps))
   }
 

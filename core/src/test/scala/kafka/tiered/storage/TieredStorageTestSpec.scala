@@ -20,12 +20,13 @@ package kafka.tiered.storage
 
 import java.io.PrintStream
 import java.util.Properties
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.{ExecutionException, TimeUnit}
 
 import kafka.utils.{TestUtils, nonthreadsafe}
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.{ElectionType, TopicPartition}
 import org.apache.kafka.common.config.TopicConfig
+import org.apache.kafka.common.errors.UnknownTopicOrPartitionException
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorageCondition.expectEvent
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorageEvent.EventType.{FETCH_SEGMENT, OFFLOAD_SEGMENT}
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset
@@ -272,7 +273,7 @@ final class ProduceAction(val offloadedSegmentSpecs: Map[TopicPartition, Seq[Off
     // Records expected to be found, based on what was sent by the producer.
     val producerRecords = spec.records
 
-    assertThat(producerRecords, correspondTo(discoveredRecords, topicPartition))
+    assertThat(discoveredRecords, correspondTo(producerRecords, topicPartition))
     assertEquals("Base offset of segment mismatch", spec.baseOffset, discoveredRecords.head.offset())
   }
 }
@@ -409,8 +410,20 @@ final class ExpectLeaderAction(val topicPartition: TopicPartition, val replicaId
       context.admin().electLeaders(ElectionType.PREFERRED, Set(topicPartition).asJava)
     }
 
-    // TODO Provide a valid error message.
-    TestUtils.assertLeader(context.admin(), topicPartition, replicaId)
+    val topic = topicPartition.topic()
+    val partition = topicPartition.partition()
+    var actualLeader = -1
+
+    TestUtils.waitUntilTrue(() => {
+      try {
+        val topicResult = context.admin().describeTopics(List(topic).asJava).all.get.get(topic)
+        actualLeader = Option(topicResult.partitions.get(partition).leader()).map(_.id).getOrElse(-1)
+        replicaId == actualLeader
+
+      } catch {
+        case e: ExecutionException if e.getCause.isInstanceOf[UnknownTopicOrPartitionException] => false
+      }
+    }, s"Leader of $topicPartition was not $replicaId. Actual leader: $actualLeader")
   }
 
   override def describe(output: PrintStream): Unit = {
