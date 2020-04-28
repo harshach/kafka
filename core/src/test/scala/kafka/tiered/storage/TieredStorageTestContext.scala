@@ -174,7 +174,14 @@ final class TieredStorageTestContext(private val zookeeperClient: KafkaZkClient,
 
   def admin() = adminClient
 
-  def isActive(brokerId: Int): Boolean = brokers(brokerId).brokerState equals RunningAsBroker
+  def isActive(brokerId: Int): Boolean = {
+    brokers(brokerId).brokerState.currentState equals RunningAsBroker.state
+  }
+
+  def isAssignedReplica(topicPartition: TopicPartition, replicaId: Int): Boolean = {
+    val assignments = zookeeperClient.getPartitionAssignmentForTopics(Set(topicPartition.topic()))
+    assignments(topicPartition.topic())(topicPartition.partition()).replicas.contains(replicaId)
+  }
 
   def succeed(action: TieredStorageTestAction): Unit = {
     testReport.addSucceeded(action)
@@ -228,9 +235,7 @@ final class TieredStorageTestReport(private val context: TieredStorageTestContex
           }
       }
 
-    if (!failedActions.isEmpty) {
-      val lts = DumpLocalTieredStorage.dump(context.getTieredStorages.head, context.de, context.de)
-      output.println(s"Content of local tiered storage:\n\n$lts")
-    }
+    val lts = DumpLocalTieredStorage.dump(context.getTieredStorages.head, context.de, context.de)
+    output.println(s"Content of local tiered storage:\n\n$lts")
   }
 }

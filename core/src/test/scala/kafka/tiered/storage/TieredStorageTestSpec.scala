@@ -206,7 +206,12 @@ final class ProduceAction(val offloadedSegmentSpecs: Map[TopicPartition, Seq[Off
 
         localStorages
           //
-          // Filter out inactive brokers, which may contain deleted log segments.
+          // Select brokers which are assigned a replica of the topic-partition
+          //
+          .filter(s => context.isAssignedReplica(topicPartition, s.brokerId))
+          //
+          // Filter out inactive brokers, which may still contain log segments we would expect
+          // to be deleted based on the retention configuration.
           //
           .filter(s => context.isActive(s.brokerId))
           //
@@ -376,9 +381,10 @@ final class ConsumeAction(val topicPartition: TopicPartition,
 
   override def describe(output: PrintStream): Unit = {
     output.println(s"consume-action:")
-    output.println(s"  fetch-offset: $fetchOffset")
-    output.println(s"  expected-record-count: $expectedTotalCount")
-    output.println(s"  expected-record-from-tiered-storage $expectedFromSecondTierCount")
+    output.println(s"  topic-partition = $topicPartition")
+    output.println(s"  fetch-offset = $fetchOffset")
+    output.println(s"  expected-record-count = $expectedTotalCount")
+    output.println(s"  expected-record-from-tiered-storage = $expectedFromSecondTierCount")
   }
 }
 

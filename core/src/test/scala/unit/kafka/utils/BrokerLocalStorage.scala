@@ -81,7 +81,8 @@ final class BrokerLocalStorage(val brokerId: Int,
       .map(_.getName)
       .find(_ == topicPartition.toString)
       .getOrElse {
-        throw new IllegalArgumentException(s"Directory for the topic-partition $topicPartition was not found")
+        throw new IllegalArgumentException(
+          s"[BrokerId=$brokerId] Directory for the topic-partition $topicPartition was not found")
       }
 
     new File(brokerStorageDirectory, topicPartitionDir)

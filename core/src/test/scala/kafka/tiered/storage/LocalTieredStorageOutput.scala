@@ -14,15 +14,20 @@ import scala.jdk.CollectionConverters._
 @nonthreadsafe
 final class LocalTieredStorageOutput[K, V](val keyDe: Deserializer[K],
                                            val valueDe: Deserializer[V]) extends LocalTieredStorageTraverser {
-
   private[storage] var output: String =
-    row("File", "Base offset", "End offset", "Base record", "End record", "")
+    row("File", "Base offset", "End offset", "First record", "Last record")
+
+  output += "-" * (55 + 12 + 12 + 13 + 13 + (4 * 2)) + "\n" // Columns length + 4 column separators.
+
+  private def row(c1: String = "", c2: Any = "", c3: Any = "", c4: String = "", c5: String = "", ident: String = " " * 4) = {
+    f"${ident + c1}%-55s |${c2.toString}%12s |${c3.toString}%12s |$c4%13s |$c5%13s\n"
+  }
 
   private var currentTopic: String = ""
 
   override def visitTopicPartition(topicPartition: TopicPartition): Unit = {
     currentTopic = topicPartition.topic()
-    output += s"$topicPartition/\n"
+    output += row(topicPartition.toString, ident = "")
   }
 
   override def visitSegment(fileset: RemoteLogSegmentFileset): Unit = {
@@ -53,10 +58,7 @@ final class LocalTieredStorageOutput[K, V](val keyDe: Deserializer[K],
 
     output += row(fileset.getFile(OFFSET_INDEX).getName)
     output += row(fileset.getFile(TIME_INDEX).getName)
-  }
-
-  private def row(c1: String, c2: Any = "", c3: Any = "", c4: String = "", c5: String = "", ident: String = "\t") = {
-    f"$ident$c1%-50s${c2.toString}%15s${c3.toString}%15s$c4%30s$c5%30s\n"
+    output += row()
   }
 }
 
