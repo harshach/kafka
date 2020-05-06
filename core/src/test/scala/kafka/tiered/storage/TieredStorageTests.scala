@@ -77,8 +77,8 @@ object TieredStorageTests {
         .createTopic(topicA, partitionsCount = 1, replicationFactor = 1, maxBatchCountPerSegment = 1)
         .produce(topicA, p0, ("k1", "v1"), ("k2", "v2"), ("k3", "v3"))
         .withBatchSize(topicA, p0, 1)
-        .expectSegmentToBeOffloaded(broker, topicA, p0, baseOffset = 0, recordCount = 1)
-        .expectSegmentToBeOffloaded(broker, topicA, p0, baseOffset = 1, recordCount = 1)
+        .expectSegmentToBeOffloaded(broker, topicA, p0, baseOffset = 0, ("k1", "v1"))
+        .expectSegmentToBeOffloaded(broker, topicA, p0, baseOffset = 1, ("k2", "v2"))
 
         /*
          * (A.2) Similar scenario as above, but with segments of two records.
@@ -105,8 +105,8 @@ object TieredStorageTests {
         .produce(topicB, p0, ("k1", "v1"), ("k2", "v2"), ("k3", "v3"), ("k4", "v4"), ("k5", "v5"))
         .withBatchSize(topicB, p0, 1)
         .expectEarliestOffsetInLogDirectory(topicB, p0, 4)
-        .expectSegmentToBeOffloaded(broker, topicB, p0, baseOffset = 0, recordCount = 2)
-        .expectSegmentToBeOffloaded(broker, topicB, p0, baseOffset = 2, recordCount = 2)
+        .expectSegmentToBeOffloaded(broker, topicB, p0, baseOffset = 0, ("k1", "v1"), ("k2", "v2"))
+        .expectSegmentToBeOffloaded(broker, topicB, p0, baseOffset = 2, ("k3", "v3"), ("k4", "v4"))
 
         /*
          * (A.3) Stops and restarts the broker. The purpose of this test is to a) exercise consumption
@@ -180,8 +180,11 @@ object TieredStorageTests {
           ("k12", "v12"), ("k13", "v13"), ("k14", "v14"))  // Third batch C
         .withBatchSize(topicB, p0, 3)
         .expectEarliestOffsetInLogDirectory(topicB, p0, 11)
-        .expectSegmentToBeOffloaded(broker, topicB, p0, baseOffset = 4, recordCount = 1)
-        .expectSegmentToBeOffloaded(broker, topicB, p0, baseOffset = 5, recordCount = 4)
+        .expectSegmentToBeOffloaded(broker, topicB, p0, baseOffset = 4, ("k5", "v5"))
+        .expectSegmentToBeOffloaded(
+          broker, topicB, p0, baseOffset = 5,
+          ("k6", "v6"), ("k7", "v7"), ("k8", "v8"), ("k9", "v9"), ("k10", "v10"), ("k11", "v11")
+        )
         .consume(topicB, p0, fetchOffset = 0, expectedTotalRecord = 14, expectedRecordsFromSecondTier = 11)
         .expectFetchFromTieredStorage(broker, topicB, p0, remoteFetchRequestCount = 4)
     }
@@ -221,8 +224,8 @@ object TieredStorageTests {
         .createTopic(topicA, partitionsCount = 1, replicationFactor = 2, maxBatchCountPerSegment = 1)
         .produce(topicA, p0, ("k1", "v1"), ("k2", "v2"), ("k3", "v3"))
         .withBatchSize(topicA, p0, 1)
-        .expectSegmentToBeOffloaded(broker0, topicA, p0, baseOffset = 0, recordCount = 1)
-        .expectSegmentToBeOffloaded(broker0, topicA, p0, baseOffset = 1, recordCount = 1)
+        .expectSegmentToBeOffloaded(broker0, topicA, p0, baseOffset = 0, ("k1", "v1"))
+        .expectSegmentToBeOffloaded(broker0, topicA, p0, baseOffset = 1, ("k2", "v2"))
 
         /*
          * (B.1) Stop B0 and read remote log segments from the leader replica which is expected
@@ -271,14 +274,14 @@ object TieredStorageTests {
         .stop(follower)
         .produce(topicA, p0, ("k2", "v2"), ("k3", "v3"))
         .withBatchSize(topicA, p0, 1)
-        .expectSegmentToBeOffloaded(leader, topicA, p0, baseOffset = 1, recordCount = 1)
+        .expectSegmentToBeOffloaded(leader, topicA, p0, baseOffset = 1, ("k1", "v1"))
 
         .stop(leader)
         .start(follower)
         .expectLeader(topicA, p0, follower)
         .produce(topicA, p0, ("k4", "v4"), ("k5", "v5"))
         .withBatchSize(topicA, p0, 1)
-        .expectSegmentToBeOffloaded(follower, topicA, p0, baseOffset = 1, recordCount = 1)
+        .expectSegmentToBeOffloaded(follower, topicA, p0, baseOffset = 1, ("k2", "v2"))
     }
   }
 
@@ -298,8 +301,8 @@ object TieredStorageTests {
         .expectLeader("topicA", partition = 0, brokerId = 0)
         .expectInIsr("topicA", partition = 0, brokerId = 1)
         .produce("topicA", 0, ("k1", "v1"), ("k2", "v2"), ("k3", "v3"))
-        .expectSegmentToBeOffloaded(fromBroker = 0, "topicA", partition = 0, baseOffset = 0, recordCount = 1)
-        .expectSegmentToBeOffloaded(fromBroker = 0, "topicA", partition = 0, baseOffset = 1, recordCount = 1)
+        .expectSegmentToBeOffloaded(fromBroker = 0, "topicA", partition = 0, baseOffset = 0, ("k1", "v1"))
+        .expectSegmentToBeOffloaded(fromBroker = 0, "topicA", partition = 0, baseOffset = 1, ("k2", "v2"))
         .consume("topicA", partition = 0, fetchOffset = 1, expectedTotalRecord = 2, expectedRecordsFromSecondTier = 1)
 
         .stop(brokerId = 1)
