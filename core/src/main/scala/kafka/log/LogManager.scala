@@ -21,8 +21,9 @@ import java.io._
 import java.nio.file.Files
 import java.util.concurrent._
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.regex.Pattern
 
-import kafka.log.remote.{RemoteIndexCache, RemoteLogManager, RemoteLogManagerConfig}
+import kafka.log.remote.{RemoteLogManager, RemoteLogManagerConfig}
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.checkpoints.OffsetCheckpointFile
 import kafka.server.{BrokerState, RecoveringFromUncleanShutdown, _}
@@ -343,9 +344,8 @@ class LogManager(logDirs: Seq[File],
               s"$logDirAbsolutePath, resetting to the base offset of the first segment", e)
         }
 
-        // ignore remote-log-index-cache directory as that is index cache but not any topic-partition dir
-        val logsToLoad = Option(dir.listFiles).getOrElse(Array.empty)
-          .filter(file => file.isDirectory && !file.getName.equals(RemoteIndexCache.DirName))
+        val dirPattern = Pattern.compile(".*-(\\d+|delete)$")
+        val logsToLoad = Option(dir.listFiles).getOrElse(Array.empty).filter(_.isDirectory).filter(dir => dirPattern.matcher(dir.getName).matches())
         val numLogsLoaded = new AtomicInteger(0)
         numTotalLogs += logsToLoad.length
 
