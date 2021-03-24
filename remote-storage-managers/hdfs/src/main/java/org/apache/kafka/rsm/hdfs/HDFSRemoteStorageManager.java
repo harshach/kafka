@@ -83,7 +83,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         }
         readCache = new LRUCache(cacheSize);
 
-        hadoopConf = new Configuration(); // Load configuration from hadoop configuration files in class path
+        // Loads configuration from hadoop configuration files in class path
+        hadoopConf = new Configuration();
     }
 
     @Override
@@ -93,7 +94,6 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             final Path dirPath = new Path(getSegmentRemoteDir(metadata.remoteLogSegmentId()));
             final FSDataOutputStream fsOut = getFS().create(dirPath);
 
-            // copy local files to remote temporary directory
             fsOut.write(LogSegmentDataHeader.serialize(header), 0, LogSegmentDataHeader.LENGTH);
             uploadFile(segmentData.offsetIndex(), fsOut, false);
             uploadFile(segmentData.timeIndex(), fsOut, false);
