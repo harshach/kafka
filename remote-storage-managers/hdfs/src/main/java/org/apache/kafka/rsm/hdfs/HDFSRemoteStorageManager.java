@@ -30,7 +30,10 @@ import org.apache.kafka.common.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.common.log.remote.storage.RemoteStorageManager;
 import org.apache.kafka.common.utils.Utils;
 
-import java.io.*;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.Map;
@@ -38,7 +41,12 @@ import java.util.Map;
 import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.IO_FILE_BUFFER_SIZE_DEFAULT;
 import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.IO_FILE_BUFFER_SIZE_KEY;
 
-import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.*;
+import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.LEADER_EPOCH_CHECKPOINT;
+import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.OFFSET_INDEX;
+import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.PRODUCER_SNAPSHOT;
+import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.SEGMENT;
+import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.TIMESTAMP_INDEX;
+import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.TRANSACTION_INDEX;
 
 public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
