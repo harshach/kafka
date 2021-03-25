@@ -90,11 +90,12 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     @Override
     public void copyLogSegment(RemoteLogSegmentMetadata metadata, LogSegmentData segmentData) throws RemoteStorageException {
         try {
-            final LogSegmentDataHeader header = LogSegmentDataHeader.create(segmentData);
             final Path dirPath = new Path(getSegmentRemoteDir(metadata.remoteLogSegmentId()));
             final FSDataOutputStream fsOut = getFS().create(dirPath);
 
-            fsOut.write(LogSegmentDataHeader.serialize(header), 0, LogSegmentDataHeader.LENGTH);
+            final LogSegmentDataHeader header = LogSegmentDataHeader.create(segmentData);
+            byte[] serializedHeader = LogSegmentDataHeader.serialize(header);
+            fsOut.write(serializedHeader, 0, serializedHeader.length);
             uploadFile(segmentData.offsetIndex(), fsOut, false);
             uploadFile(segmentData.timeIndex(), fsOut, false);
             uploadFile(segmentData.leaderEpochCheckpoint(), fsOut, false);

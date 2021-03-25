@@ -81,7 +81,7 @@ public class LogSegmentDataHeader {
             case SEGMENT:
                 return new DataPosition(position, Integer.MAX_VALUE);
             default:
-                return null;
+                throw new IllegalArgumentException(String.format("FileType %s is invalid", fileType));
         }
     }
 
